@@ -167,12 +167,13 @@ public:
 
 	void Step()
 	{
-		correction = 0.0f;
 	}
 
 	float GetBlep()
 	{
-		return correction;
+		float v = correction;
+		correction = 0;
+		return v;
 	}
 };
 
@@ -195,16 +196,33 @@ private:
 		x *= M_PI;
 		return sinf(x) / x;
 	}
+	float polyblep(float t)
+	{
+		if (t < 0 || t > 1) return 0.0;
+		float t2 = t * t;
+		float t3 = t2 * t;
+		float t4 = t2 * t2;
+		float t5 = t4 * t;
+		float t6 = t3 * t3;
+		float t7 = t6 * t;
+		float p = -4.36023f * t7
+			+ 13.5038f * t6
+			- 11.5128f * t5
+			- 3.25094f * t4
+			+ 7.83529f * t3
+			- 0.2393f * t2
+			- 2.97566f * t
+			+ 0.99986f;
+		return p;
+	}
 public:
 	void Add(float amp, float where)//amp：发生的阶跃的幅度，where：小数延迟（单位为采样）
 	{
-		float ampv = amp - v;//补偿"实际的"幅度
-		float t = -wsiz + where;//从最左边开始
-		float intv = 0;//积分器
-		for (int i = 0; i < wsiz * 2; ++i)//对整个窗口
+		float t = where;//从最左边开始
+		for (int i = 0; i < wsiz; ++i)//对整个窗口
 		{
-			intv += window(t) * sinc(t) * amp;//积分
-			buf[(pos + i) % MaxBufLen] += intv - amp;//叠加残差
+			float p = polyblep(t * 0.1);
+			buf[(pos + i) % MaxBufLen] += -amp * p;//叠加残差
 			t += 1.0;//步进
 		}
 	}
@@ -246,7 +264,6 @@ public:
 
 	inline float ProcessSample()
 	{
-		sb.Step();
 		t += dt;
 		if (t >= 1.0)
 		{
@@ -256,6 +273,7 @@ public:
 			sb.Add(-amp, where);
 			t = frac;
 		}
+		sb.Step();
 		float v = sb.GetBlep();
 		return  t + v;
 	}
