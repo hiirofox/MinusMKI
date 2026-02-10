@@ -144,7 +144,7 @@ public:
 class Blep
 {
 private:
-	int wsiz = 5;//单边窗长
+	int wsiz = 10;//单边窗长
 	constexpr static int MaxBufLen = 1024;//最多允许64个blep同时运行
 	float buf[MaxBufLen] = { 0 };//残差叠加缓冲
 	int pos = 0;
@@ -224,7 +224,8 @@ public:
 		float intv = 0;
 		for (int i = 0; i < wsiz * 2; ++i)//对整个窗口
 		{
-			intv += Sinc(t) * Window(t / wsiz);
+			float sc = Sinc(t);
+			intv += sc * Window(t / wsiz);
 			siBuf[i] = intv;
 			t += 1.0;
 		}
