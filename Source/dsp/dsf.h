@@ -144,7 +144,7 @@ public:
 class Blep
 {
 private:
-	int wsiz = 12;//单边窗长
+	int wsiz = 10;//单边窗长
 	constexpr static int MaxBufLen = 1024;//最多允许64个blep同时运行
 	float buf[MaxBufLen] = { 0 };//残差叠加缓冲
 	int pos = 0;
@@ -208,26 +208,18 @@ public:
 			t += 1.0;
 		}
 	}
-	float z1 = 0, z2 = 0;
 	void AddSiBlep(float amp, float where)
 	{
 		float t = -wsiz + where;
 		float intv = 0;
-		float x = where;
-		float x2 = x * x;
-		float s = x * (3.14159265f - x2 * (5.16771278f - x2 * 2.55016403f));
-		if (wsiz & 1) z2 = -s;
-		else z2 = s;
-		z1 = -z2;
+		float s = where;
 		for (int i = 0; i < wsiz * 2; ++i)//对整个窗口
 		{
 			float w = t / wsiz;
 			float w1 = 1.0 - w * w;
 			float wd = w1 * w1;
-			float z = z1 + 2.0 * z2;
-			z2 = z1;
-			z1 = z;
-			float sc = z / (t * M_PI);
+			s = -s;
+			float sc = s / t;
 			intv += sc * wd;
 			siBuf[i] = intv;
 			t += 1.0;
@@ -282,8 +274,8 @@ public:
 			int amp = (int)t;
 			float frac = t - amp;
 			float where = frac / dt;
-			sb.AddSiBlep(-amp, where);
-			t = frac;
+			sb.AddSiBlep(-amp * 2.0, where);
+			t = t - amp * 2.0;
 		}
 		sb.Step();
 		float v = sb.GetBlep();
