@@ -218,10 +218,10 @@ private:
 public:
 	void Add(float amp, float where)//amp：发生的阶跃的幅度，where：小数延迟（单位为采样）
 	{
-		float t = where;//从最左边开始
-		for (int i = 0; i < wsiz; ++i)//对整个窗口
+		float t = where - wsiz;//从最左边开始
+		for (int i = 0; i < wsiz * 2; ++i)//对整个窗口
 		{
-			float p = polyblep(t * 0.1);
+			float p = polyblep(fabs(t) / wsiz);
 			buf[(pos + i) % MaxBufLen] += -amp * p;//叠加残差
 			t += 1.0;//步进
 		}
@@ -275,6 +275,6 @@ public:
 		}
 		sb.Step();
 		float v = sb.GetBlep();
-		return  t + v;
+		return  v;
 	}
 };
