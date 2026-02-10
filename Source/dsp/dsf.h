@@ -218,14 +218,25 @@ public:
 			t += 1.0;
 		}
 	}
+	float z1 = 0, z2 = 0;
 	void AddSiBlep(float amp, float where)
 	{
 		float t = -wsiz + where;
 		float intv = 0;
+		z2 = sinf(t * M_PI);
+		z1 = -z2;
 		for (int i = 0; i < wsiz * 2; ++i)//对整个窗口
 		{
-			float sc = Sinc(t);
-			intv += sc * Window(t / wsiz);
+			//float sc = Sinc(t);
+			//float wd = Window(t / wsiz);
+			float w = t / wsiz;
+			float w1 = 1.0 - w * w;
+			float wd = w1 * w1;
+			float z = z1 + 2.0 * z2;
+			z2 = z1;
+			z1 = z;
+			float sc = z / (t * M_PI);
+			intv += sc * wd;
 			siBuf[i] = intv;
 			t += 1.0;
 		}
