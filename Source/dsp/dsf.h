@@ -144,7 +144,7 @@ public:
 class Blep
 {
 private:
-	int wsiz = 10;//单边窗长
+	int wsiz = 12;//单边窗长
 	constexpr static int MaxBufLen = 1024;//最多允许64个blep同时运行
 	float buf[MaxBufLen] = { 0 };//残差叠加缓冲
 	int pos = 0;
@@ -194,16 +194,6 @@ private:
 	}
 	float UsingBlep(float t) { return LagrangeBlep(t); }
 
-	float Window(float x)
-	{
-		return (cosf(M_PI * x) + 1.0) * 0.5;
-	}
-	float Sinc(float x)
-	{
-		if (fabsf(x) < 0.000001) return 1.0f;
-		x *= M_PI;
-		return std::sinf(x) / x;
-	}
 	float siBuf[1024];
 public:
 	void Add(float amp, float where)//amp：发生的阶跃的幅度，where：小数延迟（单位为采样）
@@ -223,12 +213,14 @@ public:
 	{
 		float t = -wsiz + where;
 		float intv = 0;
-		z2 = sinf(t * M_PI);
+		float x = where;
+		float x2 = x * x;
+		float s = x * (3.14159265f - x2 * (5.16771278f - x2 * 2.55016403f));
+		if (wsiz & 1) z2 = -s;
+		else z2 = s;
 		z1 = -z2;
 		for (int i = 0; i < wsiz * 2; ++i)//对整个窗口
 		{
-			//float sc = Sinc(t);
-			//float wd = Window(t / wsiz);
 			float w = t / wsiz;
 			float w1 = 1.0 - w * w;
 			float wd = w1 * w1;
