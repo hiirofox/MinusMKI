@@ -332,10 +332,10 @@ public:
 		__m128 c2 = _mm_setr_ps(1.8333333f, 0.5f, 0.5f, 1.8333333f);
 		__m128 c1 = _mm_set1_ps(-2.0f);
 		__m128 c0 = _mm_setr_ps(0.6666667f, 1.0f, 1.0f, 0.6666667f);
-		__m128 poly = _mm_add_ps(c3, _mm_mul_ps(x, c4)); 
-		poly = _mm_add_ps(c2, _mm_mul_ps(x, poly));     
-		poly = _mm_add_ps(c1, _mm_mul_ps(x, poly));    
-		poly = _mm_add_ps(c0, _mm_mul_ps(x, poly));  
+		__m128 poly = _mm_add_ps(c3, _mm_mul_ps(x, c4));
+		poly = _mm_add_ps(c2, _mm_mul_ps(x, poly));
+		poly = _mm_add_ps(c1, _mm_mul_ps(x, poly));
+		poly = _mm_add_ps(c0, _mm_mul_ps(x, poly));
 		__m128 v_post_scale = _mm_setr_ps(0.5f, 0.5f, -0.5f, -0.5f);
 		__m128 v_post_bias = _mm_setr_ps(-1.0f, -1.0f, 0.0f, 0.0f);
 		__m128 p_final = _mm_add_ps(_mm_mul_ps(poly, v_post_scale), v_post_bias);
