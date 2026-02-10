@@ -144,7 +144,7 @@ public:
 class Blep
 {
 private:
-	int wsiz = 10;//单边窗长
+	int wsiz = 2;//单边窗长
 	constexpr static int MaxBufLen = 1024;//最多允许64个blep同时运行
 	float buf[MaxBufLen] = { 0 };//残差叠加缓冲
 	int pos = 0;
@@ -208,28 +208,6 @@ public:
 			t += 1.0;
 		}
 	}
-	void AddSiBlep(float amp, float where)
-	{
-		float t = -wsiz + where;
-		float intv = 0;
-		float s = where;
-		for (int i = 0; i < wsiz * 2; ++i)//对整个窗口
-		{
-			float w = t / wsiz;
-			float w1 = 1.0 - w * w;
-			float wd = w1 * w1;
-			s = -s;
-			float sc = s / t;
-			intv += sc * wd;
-			siBuf[i] = intv;
-			t += 1.0;
-		}
-		for (int i = 0; i < wsiz * 2; ++i)//对整个窗口
-		{
-			float p = siBuf[i] / intv - 1.0;
-			buf[(pos + i) % MaxBufLen] += amp * p;
-		}
-	}
 	void Step()
 	{
 		v = buf[pos];//取值
@@ -243,10 +221,148 @@ public:
 	}
 };
 
+class SiBlep
+{
+private:
+	constexpr static int wsiz = 4;//单边窗长
+	float buf[wsiz] = { 0 };//残差叠加缓冲
+	float buf2[wsiz] = { 0 };
+	int pos = 0;
+	float v = 0;
+public:
+	void Add(float amp, float where)
+	{
+		float t = -(wsiz >> 1) + where;
+		float intv = 0;
+		float s = 1.0;
+		float const1 = 1.0 / wsiz * 2.0;
+		for (int i = 0; i < wsiz; ++i)//对整个窗口
+		{
+			float w = t * const1;
+			float w1 = 1.0 - w * w;
+			float wd = w1 * w1;
+			s = -s;
+			float sc = s / t;
+			intv += sc * wd;
+			buf2[i] = intv;
+			t += 1.0;
+		}
+		float const2 = 1.0 / intv;
+		for (int i = 0, j = pos; i < wsiz; ++i, ++j)//对整个窗口
+		{
+			float p = buf2[i] * const2 - 1.0;
+			if (j >= wsiz)j = 0;
+			buf[j] += amp * p;
+		}
+	}
+	void Step()
+	{
+		v = buf[pos];//取值
+		buf[pos] = 0;//归零
+		pos++;//步进
+		if (pos >= wsiz)pos = 0;//维护缓冲区
+	}
+	float GetBlep()
+	{
+		return v;//获取blep残差
+	}
+};
+
+class LagrangeBlep
+{
+private:
+	float z1 = 0, z2 = 0, z3 = 0, z4 = 0;
+	float v = 0.0;
+
+	inline float CalcLagrangePoly_Under1(float x)
+	{
+		return 1.0f + x * (-2.0f + x * (0.5f + x * (0.6666667f + x * -0.25f)));
+	}
+
+	inline float CalcLagrangePoly_Over1(float x)
+	{
+		float poly = 8.0f + x * (-24.0f + x * (22.0f + x * (-8.0f + x)));
+		return 0.0833333f * poly;
+	}
+
+public:
+	void Add(float amp, float where)//amp：发生的阶跃的幅度，where：小数延迟（单位为采样）
+	{
+		float p1 = CalcLagrangePoly_Over1(2.0f - where);
+		float p2 = CalcLagrangePoly_Under1(1.0f - where);
+		float p3 = CalcLagrangePoly_Under1(where);
+		float p4 = CalcLagrangePoly_Over1(where + 1.0f);
+		p1 = p1 * 0.5 - 1.0;
+		p2 = p2 * 0.5 - 1.0;
+		p3 = -p3 * 0.5;
+		p4 = -p4 * 0.5;
+		z1 += p1 * amp;
+		z2 += p2 * amp;
+		z3 += p3 * amp;
+		z4 += p4 * amp;
+	}
+	void Step()
+	{
+		v = z1;
+		z1 = z2;
+		z2 = z3;
+		z3 = z4;
+		z4 = 0;
+	}
+	float GetBlep()
+	{
+		return v;
+	}
+};
+
+class LagrangeBlep2
+{
+private:
+	alignas(16) float z[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+	float v = 0.0f;
+public:
+	void Add(float amp, float where)
+	{
+		__m128 v_w = _mm_set1_ps(where);
+		__m128 v_base = _mm_setr_ps(2.0f, 1.0f, 0.0f, 1.0f);
+		__m128 v_sign = _mm_setr_ps(-1.0f, -1.0f, 1.0f, 1.0f);
+		__m128 x = _mm_add_ps(v_base, _mm_mul_ps(v_w, v_sign));
+		__m128 c4 = _mm_setr_ps(0.08333333f, -0.25f, -0.25f, 0.08333333f);
+		__m128 c3 = _mm_setr_ps(-0.6666667f, 0.6666667f, 0.6666667f, -0.6666667f);
+		__m128 c2 = _mm_setr_ps(1.8333333f, 0.5f, 0.5f, 1.8333333f);
+		__m128 c1 = _mm_set1_ps(-2.0f);
+		__m128 c0 = _mm_setr_ps(0.6666667f, 1.0f, 1.0f, 0.6666667f);
+		__m128 poly = _mm_add_ps(c3, _mm_mul_ps(x, c4)); 
+		poly = _mm_add_ps(c2, _mm_mul_ps(x, poly));     
+		poly = _mm_add_ps(c1, _mm_mul_ps(x, poly));    
+		poly = _mm_add_ps(c0, _mm_mul_ps(x, poly));  
+		__m128 v_post_scale = _mm_setr_ps(0.5f, 0.5f, -0.5f, -0.5f);
+		__m128 v_post_bias = _mm_setr_ps(-1.0f, -1.0f, 0.0f, 0.0f);
+		__m128 p_final = _mm_add_ps(_mm_mul_ps(poly, v_post_scale), v_post_bias);
+		__m128 v_amp = _mm_set1_ps(amp);
+		__m128 v_increment = _mm_mul_ps(p_final, v_amp);
+		__m128 v_z = _mm_load_ps(z);
+		v_z = _mm_add_ps(v_z, v_increment);
+		_mm_store_ps(z, v_z);
+	}
+	void Step()
+	{
+		v = z[0];
+		__m128 v_z = _mm_load_ps(z);
+		__m128 v_shifted = _mm_castsi128_ps(_mm_srli_si128(_mm_castps_si128(v_z), 4));
+		_mm_store_ps(z, v_shifted);
+	}
+	float GetBlep()
+	{
+		return v;
+	}
+};
+
+
 class BlepTest
 {
 private:
-	Blep sb;
+	SiBlep sb;
 	float t = 0;
 	float dt = 0;
 public:
@@ -274,7 +390,7 @@ public:
 			int amp = (int)t;
 			float frac = t - amp;
 			float where = frac / dt;
-			sb.AddSiBlep(-amp * 2.0, where);
+			sb.Add(-amp * 2.0, where);
 			t = t - amp * 2.0;
 		}
 		sb.Step();
