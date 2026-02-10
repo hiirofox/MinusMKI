@@ -139,64 +139,17 @@ public:
 	}
 };
 
-class PolyBlep
+
+
+class Blep
 {
 private:
-	float correction = 0.0f;
-
-public:
-	void Add(float amp, float where)
-	{
-		float t = where;
-		float t2 = t * t;
-		float t3 = t2 * t;
-		float t4 = t2 * t2;
-		float t5 = t4 * t;
-		float t6 = t3 * t3;
-		float t7 = t6 * t;
-		float p = -4.36023f * t7
-			+ 13.5038f * t6
-			- 11.5128f * t5
-			- 3.25094f * t4
-			+ 7.83529f * t3
-			- 0.2393f * t2
-			- 2.97566f * t
-			+ 0.99986f;
-		correction = -amp * p;
-	}
-
-	void Step()
-	{
-	}
-
-	float GetBlep()
-	{
-		float v = correction;
-		correction = 0;
-		return v;
-	}
-};
-
-
-class SincBlep
-{
-private:
-	int wsiz = 10;//单边窗长
+	int wsiz = 5;//单边窗长
 	constexpr static int MaxBufLen = 1024;//最多允许64个blep同时运行
 	float buf[MaxBufLen] = { 0 };//残差叠加缓冲
 	int pos = 0;
 	float v = 0;
-	float window(float x)
-	{
-		return (1.0 - cosf(M_PI * x / wsiz)) * 0.5;//hanning窗
-	}
-	float sinc(float x)
-	{
-		if (fabsf(x) < 0.000001) return 1.0;
-		x *= M_PI;
-		return sinf(x) / x;
-	}
-	float polyblep(float t)
+	float PolyBlep(float t)//经过(0,1),(1,0)的特殊优化过的函数
 	{
 		if (t < 0 || t > 1) return 0.0;
 		float t2 = t * t;
@@ -215,15 +168,70 @@ private:
 			+ 0.99986f;
 		return p;
 	}
+	float HermiteBlep(float t)
+	{
+		if (t < 0.0f || t > 1.0f) return 0.0f;
+		t *= 0.5f;
+		t += 0.5f;
+		float p = t * t * (2.0f * t - 3.0f) + 1.0f;
+		return p * 2.0f;
+	}
+	float LagrangeBlep(float t)
+	{
+		float x = t;
+		if (x >= 2.0f) return 0.0f;
+		float x2 = x * x;
+		float x3 = x2 * x;
+		float x4 = x2 * x2;
+		if (x < 1.0f)
+		{
+			return -0.25f * x4 + 0.6666667f * x3 + 0.5f * x2 - 2.0f * x + 1.0f;
+		}
+		else
+		{
+			return 0.0833333f * (x4 - 8.0f * x3 + 22.0f * x2 - 24.0f * x + 8.0f);
+		}
+	}
+	float UsingBlep(float t) { return LagrangeBlep(t); }
+
+	float Window(float x)
+	{
+		return (cosf(M_PI * x) + 1.0) * 0.5;
+	}
+	float Sinc(float x)
+	{
+		if (fabsf(x) < 0.000001) return 1.0f;
+		x *= M_PI;
+		return std::sinf(x) / x;
+	}
+	float siBuf[1024];
 public:
 	void Add(float amp, float where)//amp：发生的阶跃的幅度，where：小数延迟（单位为采样）
 	{
-		float t = where - wsiz;//从最左边开始
+		float t = -wsiz + where;//从最左边开始
 		for (int i = 0; i < wsiz * 2; ++i)//对整个窗口
 		{
-			float p = polyblep(fabs(t) / wsiz);
-			buf[(pos + i) % MaxBufLen] += -amp * p;//叠加残差
-			t += 1.0;//步进
+			float p;
+			if (t < 0) p = UsingBlep(-t) * 0.5 - 1.0;
+			else p = -UsingBlep(t) * 0.5;
+			buf[(pos + i) % MaxBufLen] += amp * p;//残差
+			t += 1.0;
+		}
+	}
+	void AddSiBlep(float amp, float where)
+	{
+		float t = -wsiz + where;
+		float intv = 0;
+		for (int i = 0; i < wsiz * 2; ++i)//对整个窗口
+		{
+			intv += Sinc(t) * Window(t / wsiz);
+			siBuf[i] = intv;
+			t += 1.0;
+		}
+		for (int i = 0; i < wsiz * 2; ++i)//对整个窗口
+		{
+			float p = siBuf[i] / intv - 1.0;
+			buf[(pos + i) % MaxBufLen] += amp * p;
 		}
 	}
 	void Step()
@@ -242,7 +250,7 @@ public:
 class BlepTest
 {
 private:
-	SincBlep sb;
+	Blep sb;
 	float t = 0;
 	float dt = 0;
 public:
@@ -270,11 +278,11 @@ public:
 			int amp = (int)t;
 			float frac = t - amp;
 			float where = frac / dt;
-			sb.Add(-amp, where);
+			sb.AddSiBlep(-amp, where);
 			t = frac;
 		}
 		sb.Step();
 		float v = sb.GetBlep();
-		return  v;
+		return  t + v;
 	}
 };
