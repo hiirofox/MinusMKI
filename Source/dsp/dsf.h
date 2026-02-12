@@ -2,6 +2,8 @@
 
 #define _USE_MATH_DEFINES
 #include <math.h>
+#include <complex>
+#include <vector>
 
 class Blit
 {
@@ -224,7 +226,7 @@ public:
 class SiBlep
 {
 private:
-	constexpr static int wsiz = 4;//单边窗长
+	constexpr static int wsiz = 8;//单边窗长
 	float buf[wsiz] = { 0 };//残差叠加缓冲
 	float buf2[wsiz] = { 0 };
 	int pos = 0;
@@ -360,48 +362,45 @@ public:
 	}
 };
 
-#include <complex>
 class TableBlep
 {
 private:
-	constexpr static int wsiz = 40;//既决定窗长，又决定阶数
+	constexpr static int wsiz = 12;//既决定窗长，又决定阶数
 	constexpr static int numTables = 16;
 	float table[numTables + 1][wsiz] = { 0 };
 	float buf[wsiz] = { 0 };
 	float v = 0;
 	int pos = 0;
 
-	void DFT(std::vector<std::complex<float>>& x)
+	void DFT(std::vector<std::complex<double>>& x, int n)
 	{
-		int n = wsiz * numTables;
-		std::vector<std::complex<float>> y;
+		std::vector<std::complex<double>> y;
 		y.resize(n, 0);
 		for (int i = 0; i < n; ++i)
 		{
 			for (int j = 0; j < n; ++j)
 			{
-				float k = -i * j * 2.0 * M_PI / n;
-				std::complex<float> r{ cosf(k),sinf(k) };
+				double k = (double)-i * j * 2.0 * M_PI / n;
+				std::complex<double> r{ cosf(k),sinf(k) };
 				y[i] += x[j] * r;
 			}
 		}
 		for (int i = 0; i < n; ++i)x[i] = y[i];
 	}
-	void IDFT(std::vector<std::complex<float>>& x)
+	void IDFT(std::vector<std::complex<double>>& x, int n)
 	{
-		int n = wsiz * numTables;
-		std::vector<std::complex<float>> y;
+		std::vector<std::complex<double>> y;
 		y.resize(n, 0);
 		for (int i = 0; i < n; ++i)
 		{
 			for (int j = 0; j < n; ++j)
 			{
-				float k = i * j * 2.0 * M_PI / n;
-				std::complex<float> r{ cosf(k),sinf(k) };
+				double k = (double)i * j * 2.0 * M_PI / n;
+				std::complex<double> r{ cosf(k),sinf(k) };
 				y[i] += x[j] * r;
 			}
 		}
-		for (int i = 0; i < n; ++i)x[i] = y[i] / (float)n;
+		for (int i = 0; i < n; ++i)x[i] = y[i] / (double)n;
 	}
 
 public:
@@ -413,69 +412,54 @@ public:
 
 	void UsingMinPhaseBlep()
 	{
-		int n = wsiz * numTables;
-		std::vector<std::complex<float>> x;
-		std::vector<std::complex<float>> cep;
+		int n = wsiz * (numTables + 1);
+		std::vector<std::complex<double>> x;
+		std::vector<std::complex<double>> cep;
 		x.resize(n, 0);
 		cep.resize(n, 0);
 		for (int i = 0; i < n; ++i)
 		{
-			float t = (float)(i - n / 2) / numTables;
-			float w = t / wsiz * 2.0;
+			float t = (float)i / n * 2.0 - 1.0;//[-1,1]
+			float w = t;
 			float w1 = 1.0f - w * w;
 			float wd = w1 * w1;
 			float sc;
-			if (std::abs(t) < 1e-5f) {
-				sc = 1.0f;
-			}
-			else {
-				sc = sinf(M_PI * t) / (M_PI * t);
-			}
-			x[i] = wd * sc;
+			float t2 = M_PI * t * wsiz / 2.0;
+			if (fabsf(t2) < 0.000001)sc = 1.0;
+			else sc = sin(t2) / (t2);
+			x[i] = wd * sc;//加窗sinc
 		}
-		DFT(x);
-		for (int i = 0; i < n; ++i) cep[i] = std::log(std::abs(x[i]) + 1e-10);
-		IDFT(cep);
-		for (int i = 1; i < n / 2; ++i) {
-			cep[i] *= 2.0f;
-		}
-		for (int i = n / 2; i < n; ++i) {
-			cep[i] = 0.0f;
-		}
-		DFT(cep);
-		for (int i = 0; i < n; ++i)x[i] = std::exp(cep[i]);
-		IDFT(x);//最小相位冲激响应
 
-		/*
+		DFT(x, n);
+		for (int i = 0; i < n; ++i) cep[i] = std::log(std::abs(x[i]) + 1e-100);//对幅度求对数
+		IDFT(cep, n);//进入倒谱域
+		for (int i = 1; i < n / 2; ++i) {//应用因果窗
+			cep[i] *= 2.0;
+		}
+		for (int i = n / 2 + 1; i < n; ++i) {
+			cep[i] = 0.0;
+		}
+		DFT(cep, n);//变换回频域
+		for (int i = 0; i < n; ++i)x[i] = std::exp(cep[i]);
+		IDFT(x, n);//现在x为最小相位冲激响应
+
 		float intv = 0;//积分
 		for (int i = 0; i < n; ++i)
 		{
-			intv += x[i].real() - x[0].real();
+			intv += x[i].real();
 			x[i] = intv;
 		}
 		for (int i = 0; i < n; ++i)
 		{
 			x[i] /= intv;//归一化
-		}*/
-
-		for (int i = 0; i < numTables; ++i)
-		{/*
+		}
+		
+		for (int i = 0; i < (numTables + 1); ++i)
+		{
 			for (int j = 0; j < wsiz; ++j)
 			{
 				int k = j * numTables + i;//进行降采样
 				table[i][j] = x[k].real() - 1.0;//冲激积分得阶跃
-			}*/
-			float intv = 0;
-			for (int j = 0; j < wsiz; ++j)
-			{
-				int k = j * numTables + i;//进行降采样
-				intv += x[k].real();
-				table[i][j] = intv;//冲激积分得阶跃
-			}
-			for (int j = 0; j < wsiz; ++j)
-			{
-				table[i][j] /= intv;
-				table[i][j] -= 1.0;
 			}
 		}
 
