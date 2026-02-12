@@ -365,9 +365,11 @@ public:
 class TableBlep
 {
 private:
-	constexpr static int wsiz = 12;//既决定窗长，又决定阶数
+	constexpr static int wsiz = 6;//既决定窗长，又决定阶数
 	constexpr static int numTables = 16;
-	float table[numTables + 1][wsiz] = { 0 };
+	float tableBlit[numTables + 1][wsiz] = { 0 };
+	float tableBlep[numTables + 1][wsiz] = { 0 };
+	float tableBlamp[numTables + 1][wsiz] = { 0 };
 	float buf[wsiz] = { 0 };
 	float v = 0;
 	int pos = 0;
@@ -402,15 +404,22 @@ private:
 		}
 		for (int i = 0; i < n; ++i)x[i] = y[i] / (double)n;
 	}
+	float BlackmanHarrisWindow(float x) {
+		x = 2.0f * (float)M_PI * x;
+		return 0.35875f -
+			0.48829f * cosf(x) +
+			0.14128f * cosf(2.0f * x) -
+			0.01168f * cosf(3.0f * x);
+	}
 
 public:
 	TableBlep()
 	{
 		//UsingSiBlep();
-		UsingMinPhaseBlep();
+		Init(1);
 	}
 
-	void UsingMinPhaseBlep()
+	void Init(int usingMinPhase = 1)
 	{
 		int n = wsiz * (numTables + 1);
 		std::vector<std::complex<double>> x;
@@ -420,9 +429,10 @@ public:
 		for (int i = 0; i < n; ++i)
 		{
 			float t = (float)i / n * 2.0 - 1.0;//[-1,1]
-			float w = t;
-			float w1 = 1.0f - w * w;
-			float wd = w1 * w1;
+			//float w = t;
+			//float w1 = 1.0f - w * w;
+			//float wd = w1 * w1;//square welch
+			float wd = BlackmanHarrisWindow((float)i / n);
 			float sc;
 			float t2 = M_PI * t * wsiz / 2.0;
 			if (fabsf(t2) < 0.000001)sc = 1.0;
@@ -430,70 +440,65 @@ public:
 			x[i] = wd * sc;//加窗sinc
 		}
 
-		DFT(x, n);
-		for (int i = 0; i < n; ++i) cep[i] = std::log(std::abs(x[i]) + 1e-100);//对幅度求对数
-		IDFT(cep, n);//进入倒谱域
-		for (int i = 1; i < n / 2; ++i) {//应用因果窗
-			cep[i] *= 2.0;
+		if (usingMinPhase)
+		{
+			DFT(x, n);
+			for (int i = 0; i < n; ++i) cep[i] = std::log(std::abs(x[i]) + 1e-100);//对幅度求对数
+			IDFT(cep, n);//进入倒谱域
+			for (int i = 1; i < n / 2; ++i) {//应用因果窗
+				cep[i] *= 2.0;
+			}
+			for (int i = n / 2 + 1; i < n; ++i) {
+				cep[i] = 0.0;
+			}
+			DFT(cep, n);//变换回频域
+			for (int i = 0; i < n; ++i)x[i] = std::exp(cep[i]);
+			IDFT(x, n);//现在x为最小相位冲激响应
 		}
-		for (int i = n / 2 + 1; i < n; ++i) {
-			cep[i] = 0.0;
-		}
-		DFT(cep, n);//变换回频域
-		for (int i = 0; i < n; ++i)x[i] = std::exp(cep[i]);
-		IDFT(x, n);//现在x为最小相位冲激响应
+
+		std::vector<float> mpblit;
+		std::vector<float> mpblep;
+		std::vector<float> mpblamp;
+		mpblit.resize(n, 0);
+		mpblep.resize(n, 0);
+		mpblamp.resize(n, 0);
 
 		float intv = 0;//积分
+		float intv2 = 0;
 		for (int i = 0; i < n; ++i)
 		{
 			intv += x[i].real();
-			x[i] = intv;
+			intv2 += intv;
+			mpblit[i] = x[i].real();
+			mpblep[i] = intv;
+			mpblamp[i] = intv2;
 		}
 		for (int i = 0; i < n; ++i)
 		{
-			x[i] /= intv;//归一化
+			mpblit[i] = mpblit[i] / intv * (numTables + 1);
+			mpblep[i] = mpblep[i] / intv - 1.0;
+			mpblamp[i] = (mpblamp[i] / intv2 - (float)i / n) * (numTables + 1);
 		}
-		
-		for (int i = 0; i < (numTables + 1); ++i)
+
+		for (int i = 0; i < numTables + 1; ++i)
 		{
 			for (int j = 0; j < wsiz; ++j)
 			{
 				int k = j * numTables + i;//进行降采样
-				table[i][j] = x[k].real() - 1.0;//冲激积分得阶跃
+				tableBlit[i][j] = mpblit[k];
+				tableBlep[i][j] = mpblep[k];
+				tableBlamp[i][j] = mpblamp[k];
 			}
+			tableBlit[i][0] -= 1.0;
 		}
+	}
 
-	}
-	void UsingSiBlep()
+	void Add(float amp, float where, int stage = 1)//0:blit 1:blep 2:blamp
 	{
-		for (int i = 0; i <= numTables; ++i)
-		{
-			float where = (float)i / numTables;
-			float intv = 0;
-			for (int j = 0; j < wsiz; ++j)
-			{
-				float t = (float)j - wsiz / 2 + where;
-				float w = t / wsiz * 2.0;
-				float w1 = 1.0f - w * w;
-				float wd = w1 * w1;
-				float sc;
-				if (std::abs(t) < 1e-5f) {
-					sc = 1.0f;
-				}
-				else {
-					sc = sinf(M_PI * t) / (M_PI * t);
-				}
-				intv += wd * sc;
-				table[i][j] = intv;
-			}
-			for (int j = 0; j < wsiz; ++j)
-			{
-				table[i][j] = (table[i][j] / intv) - 1.0f;
-			}
-		}
-	}
-	void Add(float amp, float where)
-	{
+		float(*table)[wsiz] = tableBlep;
+		if (stage == 0)table = tableBlit;
+		else if (stage == 2)table = tableBlamp;
+
 		float inf = where * numTables;
 		int in1 = (int)inf;
 		int in2 = in1 + 1;
@@ -516,7 +521,7 @@ public:
 		pos++;
 		if (pos >= wsiz) pos = 0;
 	}
-	float GetBlep()
+	float Get()
 	{
 		return v;
 	}
@@ -528,17 +533,19 @@ private:
 	TableBlep sb;
 	float t = 0;
 	float dt = 0;
+	float k = 0;
 public:
 	void SetParams(float freq, float curve, float disp, float sr)
 	{
 		dt = freq / sr;
+		k = curve * 8 - 4;
 		if (dt > 1)dt = 1;
 	}
 	void ProcessBlock(float* outl, float* outr, int numSamples)
 	{
 		for (int i = 0; i < numSamples; ++i)
 		{
-			float vl = ProcessSample();
+			float vl = ProcessSampleSaw();
 			float vr = vl;
 
 			outl[i] = vl / 8.0;
@@ -546,7 +553,7 @@ public:
 		}
 	}
 
-	inline float ProcessSample()
+	inline float ProcessSampleSaw()
 	{
 		t += dt;
 		if (t >= 1.0)
@@ -558,7 +565,55 @@ public:
 			t = t - amp * 2.0;
 		}
 		sb.Step();
-		float v = sb.GetBlep();
+		float v = sb.Get();
+		return  t + v;
+	}
+	inline float ProcessSampleImp()
+	{
+		t += dt;
+		float imp = 0;
+		if (t >= 1.0)
+		{
+			int amp = (int)t;
+			float frac = t - amp;
+			float where = frac / dt;
+			sb.Add(-amp * 2.0, where, 0);
+			t = t - amp * 2.0;
+			imp = -amp * 2.0;
+		}
+		sb.Step();
+		float v = sb.Get();
+		return  imp + v;
+	}
+	float tristate = 0;
+	inline float ProcessSampleTri()
+	{
+		if (tristate)
+		{
+			t += dt;
+			if (t > 1.0)
+			{
+				float frac = t - 1.0;
+				float where = frac / dt;
+				sb.Add(-dt, where, 2);
+				tristate = !tristate;
+				t = 1.0 - frac;
+			}
+		}
+		else
+		{
+			t -= dt;
+			if (t < -1.0)
+			{
+				float frac = -t - 1.0;
+				float where = frac / dt;
+				sb.Add(dt, where, 2);
+				tristate = !tristate;
+				t = -1.0 + frac;
+			}
+		}
+		sb.Step();
+		float v = sb.Get();
 		return  t + v;
 	}
 };
