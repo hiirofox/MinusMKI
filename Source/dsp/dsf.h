@@ -365,8 +365,8 @@ public:
 class TableBlep
 {
 private:
-	constexpr static int wsiz = 60;//既决定窗长，又决定阶数
-	constexpr static int numTables = 16;
+	constexpr static int wsiz = 6;//既决定窗长，又决定阶数
+	constexpr static int numTables = 12;
 	float tableBlit[numTables + 1][wsiz] = { 0 };
 	float tableBlep[numTables + 1][wsiz] = { 0 };
 	float tableBlamp[numTables + 1][wsiz] = { 0 };
@@ -423,42 +423,36 @@ public:
 	{
 		int n = wsiz * (numTables + 1);
 		std::vector<std::complex<double>> x;
-		std::vector<std::complex<double>> cep;
 		x.resize(n, 0);
-		cep.resize(n, 0);
+
 		for (int i = 0; i < n; ++i)
 		{
-			float t = (float)i / n * 2.0 - 1.0;//[-1,1]
-			//float w = t;
-			//float w1 = 1.0f - w * w;
-			//float wd = w1 * w1;//square welch
+			float t = (float)i / n * 2.0 - 1.0;
 			float wd = BlackmanHarrisWindow((float)i / n);
 			float sc;
 			float t2 = M_PI * t * wsiz / 2.0 * wc;
 			if (fabsf(t2) < 0.000001)sc = 1.0;
 			else sc = sin(t2) / (t2);
-			x[i] = wd * sc;//加窗sinc
+			x[i] = wd * sc;
 		}
 
 		if (usingMinPhase)
 		{
-			DFT(x, n);
-			for (int i = 0; i < n; ++i) cep[i] = std::log(std::abs(x[i]) + 1e-100);//对幅度求对数
-			IDFT(cep, n);//进入倒谱域
-			for (int i = 0; i < n / 2; ++i) {//应用因果窗
-				cep[i] *= 2.0;
-			}
-			for (int i = n / 2; i < n; ++i) {
-				cep[i] = 0.0;
-			}
-			DFT(cep, n);//变换回频域
-			for (int i = 0; i < n; ++i)x[i] = std::exp(cep[i]);
-			IDFT(x, n);//现在x为最小相位冲激响应
-
-			for (int i = n / 2; i < n; ++i)//我发现，如果是用倒谱法生成的冲激响应，会在一半的部分生成另一个很小的带限冲激。如果不去掉，会产生全频带的类似comb filter的陷波，为什么？
-			{
-				x[i] *= BlackmanHarrisWindow((float)i / n * 20.0);
-			}
+			int cepn = n * 4;
+			std::vector<std::complex<double>> x2(cepn, 0);
+			std::vector<std::complex<double>> cep(cepn, 0);
+			for (int i = 0; i < n; ++i) x2[i] = x[i];
+			DFT(x2, cepn);
+			for (int i = 0; i < cepn; ++i) cep[i] = std::log(std::abs(x2[i]) + 1e-100);
+			IDFT(cep, cepn); // 进入倒谱域
+			cep[0] = cep[0];//应用因果窗 
+			for (int i = 1; i < cepn / 2; ++i) cep[i] *= 2.0;
+			cep[cepn / 2] = cep[cepn / 2];
+			for (int i = cepn / 2 + 1; i < cepn; ++i) cep[i] = 0.0;
+			DFT(cep, cepn); // 变回频域 
+			for (int i = 0; i < cepn; ++i) x2[i] = std::exp(cep[i]);
+			IDFT(x2, cepn); // 最小相位冲激
+			for (int i = 0; i < n; ++i) x[i] = x2[i];
 		}
 
 		std::vector<float> mpblit;
