@@ -365,7 +365,7 @@ public:
 class TableBlep
 {
 private:
-	constexpr static int wsiz = 6;//既决定窗长，又决定阶数
+	constexpr static int wsiz = 60;//既决定窗长，又决定阶数
 	constexpr static int numTables = 16;
 	float tableBlit[numTables + 1][wsiz] = { 0 };
 	float tableBlep[numTables + 1][wsiz] = { 0 };
@@ -405,6 +405,7 @@ private:
 		for (int i = 0; i < n; ++i)x[i] = y[i] / (double)n;
 	}
 	float BlackmanHarrisWindow(float x) {
+		if (x < 0 || x>1)return 0;
 		x = 2.0f * (float)M_PI * x;
 		return 0.35875f -
 			0.48829f * cosf(x) +
@@ -415,11 +416,10 @@ private:
 public:
 	TableBlep()
 	{
-		//UsingSiBlep();
-		Init(1);
+		Init(1, 0.75);
 	}
 
-	void Init(int usingMinPhase = 1)
+	void Init(int usingMinPhase = 1, float wc = 1.0)
 	{
 		int n = wsiz * (numTables + 1);
 		std::vector<std::complex<double>> x;
@@ -434,7 +434,7 @@ public:
 			//float wd = w1 * w1;//square welch
 			float wd = BlackmanHarrisWindow((float)i / n);
 			float sc;
-			float t2 = M_PI * t * wsiz / 2.0;
+			float t2 = M_PI * t * wsiz / 2.0 * wc;
 			if (fabsf(t2) < 0.000001)sc = 1.0;
 			else sc = sin(t2) / (t2);
 			x[i] = wd * sc;//加窗sinc
@@ -445,15 +445,20 @@ public:
 			DFT(x, n);
 			for (int i = 0; i < n; ++i) cep[i] = std::log(std::abs(x[i]) + 1e-100);//对幅度求对数
 			IDFT(cep, n);//进入倒谱域
-			for (int i = 1; i < n / 2; ++i) {//应用因果窗
+			for (int i = 0; i < n / 2; ++i) {//应用因果窗
 				cep[i] *= 2.0;
 			}
-			for (int i = n / 2 + 1; i < n; ++i) {
+			for (int i = n / 2; i < n; ++i) {
 				cep[i] = 0.0;
 			}
 			DFT(cep, n);//变换回频域
 			for (int i = 0; i < n; ++i)x[i] = std::exp(cep[i]);
 			IDFT(x, n);//现在x为最小相位冲激响应
+
+			for (int i = n / 2; i < n; ++i)//我发现，如果是用倒谱法生成的冲激响应，会在一半的部分生成另一个很小的带限冲激。如果不去掉，会产生全频带的类似comb filter的陷波，为什么？
+			{
+				x[i] *= BlackmanHarrisWindow((float)i / n * 20.0);
+			}
 		}
 
 		std::vector<float> mpblit;
