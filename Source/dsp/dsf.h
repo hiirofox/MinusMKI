@@ -268,6 +268,8 @@ public:
 	}
 };
 
+
+
 class LagrangeBlep
 {
 private:
@@ -358,17 +360,195 @@ public:
 	}
 };
 
+#include <complex>
+class TableBlep
+{
+private:
+	constexpr static int wsiz = 40;//既决定窗长，又决定阶数
+	constexpr static int numTables = 16;
+	float table[numTables + 1][wsiz] = { 0 };
+	float buf[wsiz] = { 0 };
+	float v = 0;
+	int pos = 0;
+
+	void DFT(std::vector<std::complex<float>>& x)
+	{
+		int n = wsiz * numTables;
+		std::vector<std::complex<float>> y;
+		y.resize(n, 0);
+		for (int i = 0; i < n; ++i)
+		{
+			for (int j = 0; j < n; ++j)
+			{
+				float k = -i * j * 2.0 * M_PI / n;
+				std::complex<float> r{ cosf(k),sinf(k) };
+				y[i] += x[j] * r;
+			}
+		}
+		for (int i = 0; i < n; ++i)x[i] = y[i];
+	}
+	void IDFT(std::vector<std::complex<float>>& x)
+	{
+		int n = wsiz * numTables;
+		std::vector<std::complex<float>> y;
+		y.resize(n, 0);
+		for (int i = 0; i < n; ++i)
+		{
+			for (int j = 0; j < n; ++j)
+			{
+				float k = i * j * 2.0 * M_PI / n;
+				std::complex<float> r{ cosf(k),sinf(k) };
+				y[i] += x[j] * r;
+			}
+		}
+		for (int i = 0; i < n; ++i)x[i] = y[i] / (float)n;
+	}
+
+public:
+	TableBlep()
+	{
+		//UsingSiBlep();
+		UsingMinPhaseBlep();
+	}
+
+	void UsingMinPhaseBlep()
+	{
+		int n = wsiz * numTables;
+		std::vector<std::complex<float>> x;
+		std::vector<std::complex<float>> cep;
+		x.resize(n, 0);
+		cep.resize(n, 0);
+		for (int i = 0; i < n; ++i)
+		{
+			float t = (float)(i - n / 2) / numTables;
+			float w = t / wsiz * 2.0;
+			float w1 = 1.0f - w * w;
+			float wd = w1 * w1;
+			float sc;
+			if (std::abs(t) < 1e-5f) {
+				sc = 1.0f;
+			}
+			else {
+				sc = sinf(M_PI * t) / (M_PI * t);
+			}
+			x[i] = wd * sc;
+		}
+		DFT(x);
+		for (int i = 0; i < n; ++i) cep[i] = std::log(std::abs(x[i]) + 1e-10);
+		IDFT(cep);
+		for (int i = 1; i < n / 2; ++i) {
+			cep[i] *= 2.0f;
+		}
+		for (int i = n / 2; i < n; ++i) {
+			cep[i] = 0.0f;
+		}
+		DFT(cep);
+		for (int i = 0; i < n; ++i)x[i] = std::exp(cep[i]);
+		IDFT(x);//最小相位冲激响应
+
+		/*
+		float intv = 0;//积分
+		for (int i = 0; i < n; ++i)
+		{
+			intv += x[i].real() - x[0].real();
+			x[i] = intv;
+		}
+		for (int i = 0; i < n; ++i)
+		{
+			x[i] /= intv;//归一化
+		}*/
+
+		for (int i = 0; i < numTables; ++i)
+		{/*
+			for (int j = 0; j < wsiz; ++j)
+			{
+				int k = j * numTables + i;//进行降采样
+				table[i][j] = x[k].real() - 1.0;//冲激积分得阶跃
+			}*/
+			float intv = 0;
+			for (int j = 0; j < wsiz; ++j)
+			{
+				int k = j * numTables + i;//进行降采样
+				intv += x[k].real();
+				table[i][j] = intv;//冲激积分得阶跃
+			}
+			for (int j = 0; j < wsiz; ++j)
+			{
+				table[i][j] /= intv;
+				table[i][j] -= 1.0;
+			}
+		}
+
+	}
+	void UsingSiBlep()
+	{
+		for (int i = 0; i <= numTables; ++i)
+		{
+			float where = (float)i / numTables;
+			float intv = 0;
+			for (int j = 0; j < wsiz; ++j)
+			{
+				float t = (float)j - wsiz / 2 + where;
+				float w = t / wsiz * 2.0;
+				float w1 = 1.0f - w * w;
+				float wd = w1 * w1;
+				float sc;
+				if (std::abs(t) < 1e-5f) {
+					sc = 1.0f;
+				}
+				else {
+					sc = sinf(M_PI * t) / (M_PI * t);
+				}
+				intv += wd * sc;
+				table[i][j] = intv;
+			}
+			for (int j = 0; j < wsiz; ++j)
+			{
+				table[i][j] = (table[i][j] / intv) - 1.0f;
+			}
+		}
+	}
+	void Add(float amp, float where)
+	{
+		float inf = where * numTables;
+		int in1 = (int)inf;
+		int in2 = in1 + 1;
+		float frac = inf - in1;
+		float k1 = (1.0 - frac) * amp;
+		float k2 = frac * amp;
+		for (int i = 0, j = pos; i < wsiz; ++i, ++j)
+		{
+			float a = table[in1][i];
+			float b = table[in2][i];
+			float p = a * k1 + b * k2;
+			if (j >= wsiz) j = 0;
+			buf[j] += p;
+		}
+	}
+	void Step()
+	{
+		v = buf[pos];
+		buf[pos] = 0;
+		pos++;
+		if (pos >= wsiz) pos = 0;
+	}
+	float GetBlep()
+	{
+		return v;
+	}
+};
 
 class BlepTest
 {
 private:
-	SiBlep sb;
+	TableBlep sb;
 	float t = 0;
 	float dt = 0;
 public:
 	void SetParams(float freq, float curve, float disp, float sr)
 	{
 		dt = freq / sr;
+		if (dt > 1)dt = 1;
 	}
 	void ProcessBlock(float* outl, float* outr, int numSamples)
 	{
