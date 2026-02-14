@@ -6,6 +6,8 @@
     <GROUP id="{99D01DCC-B455-52C2-9723-1693D6EC74E2}" name="Source">
       <GROUP id="{F7BBC27B-CD45-36BE-3089-3DD5E08BA8F2}" name="dsp">
         <FILE id="Pt8ol3" name="dsf.h" compile="0" resource="0" file="Source/dsp/dsf.h"/>
+        <FILE id="Tucgw6" name="TableBlep.cpp" compile="1" resource="0" file="Source/dsp/TableBlep.cpp"/>
+        <FILE id="gruzQO" name="TableBlep.h" compile="0" resource="0" file="Source/dsp/TableBlep.h"/>
       </GROUP>
       <GROUP id="{F0E83B79-C7E3-715C-DB33-08BD7D3CCD14}" name="ui">
         <FILE id="CaKJLD" name="LM_slider.cpp" compile="1" resource="0" file="Source/ui/LM_slider.cpp"/>

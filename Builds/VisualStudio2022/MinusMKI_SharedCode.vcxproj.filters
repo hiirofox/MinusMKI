@@ -676,6 +676,9 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="..\..\Source\dsp\TableBlep.cpp">
+      <Filter>MinusMKI\Source\dsp</Filter>
+    </ClCompile>
     <ClCompile Include="..\..\Source\ui\LM_slider.cpp">
       <Filter>MinusMKI\Source\ui</Filter>
     </ClCompile>
@@ -3541,6 +3544,9 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\Source\dsp\dsf.h">
+      <Filter>MinusMKI\Source\dsp</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\dsp\TableBlep.h">
       <Filter>MinusMKI\Source\dsp</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Source\ui\LM_slider.h">
