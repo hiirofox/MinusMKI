@@ -272,7 +272,7 @@ public:
 
 
 
-class LagrangeBlep
+class Lagrange4pBlep
 {
 private:
 	float z1 = 0, z2 = 0, z3 = 0, z4 = 0;
@@ -290,7 +290,7 @@ private:
 	}
 
 public:
-	void Add(float amp, float where)//amp：发生的阶跃的幅度，where：小数延迟（单位为采样）
+	void Add(float amp, float where, int stage = 1)
 	{
 		float p1 = CalcLagrangePoly_Over1(2.0f - where);
 		float p2 = CalcLagrangePoly_Under1(1.0f - where);
@@ -313,66 +313,92 @@ public:
 		z3 = z4;
 		z4 = 0;
 	}
-	float GetBlep()
+	float Get()
 	{
 		return v;
 	}
 };
 
-class LagrangeBlep2
-{
+class EquidistantLagrange {
 private:
-	alignas(16) float z[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
-	float v = 0.0f;
+	int n;
+	std::vector<double> coeffs;
+	double factorial(int num) {
+		double res = 1.0;
+		for (int i = 2; i <= num; ++i) res *= i;
+		return res;
+	}
+	void generate_coefficients(const std::vector<double>& y_values) {
+		std::vector<double> master_poly(1, 1.0);
+		for (int i = 0; i < n; ++i) {
+			std::vector<double> next_poly(master_poly.size() + 1, 0.0);
+			for (size_t k = 0; k < master_poly.size(); ++k) {
+				next_poly[k + 1] += master_poly[k];
+				next_poly[k] -= i * master_poly[k];
+			}
+			master_poly = next_poly;
+		}
+		coeffs.assign(n, 0.0);
+		for (int j = 0; j < n; ++j) {
+			double y_j = y_values[j];
+			double denom = factorial(j) * factorial(n - 1 - j);
+			int sign = ((n - 1 - j) % 2 == 1) ? -1 : 1;
+			double weight = 1.0 / (sign * denom);
+			double scale = y_j * weight;
+			std::vector<double> quotient(n);
+			double remainder = 0.0;
+			double current_b = master_poly[n];
+			for (int k = n - 1; k >= 0; --k) {
+				quotient[k] = current_b;
+				current_b = master_poly[k] + j * current_b;
+			}
+			for (int k = 0; k < n; ++k) {
+				coeffs[k] += quotient[k] * scale;
+			}
+		}
+	}
+
 public:
-	void Add(float amp, float where)
-	{
-		__m128 v_w = _mm_set1_ps(where);
-		__m128 v_base = _mm_setr_ps(2.0f, 1.0f, 0.0f, 1.0f);
-		__m128 v_sign = _mm_setr_ps(-1.0f, -1.0f, 1.0f, 1.0f);
-		__m128 x = _mm_add_ps(v_base, _mm_mul_ps(v_w, v_sign));
-		__m128 c4 = _mm_setr_ps(0.08333333f, -0.25f, -0.25f, 0.08333333f);
-		__m128 c3 = _mm_setr_ps(-0.6666667f, 0.6666667f, 0.6666667f, -0.6666667f);
-		__m128 c2 = _mm_setr_ps(1.8333333f, 0.5f, 0.5f, 1.8333333f);
-		__m128 c1 = _mm_set1_ps(-2.0f);
-		__m128 c0 = _mm_setr_ps(0.6666667f, 1.0f, 1.0f, 0.6666667f);
-		__m128 poly = _mm_add_ps(c3, _mm_mul_ps(x, c4));
-		poly = _mm_add_ps(c2, _mm_mul_ps(x, poly));
-		poly = _mm_add_ps(c1, _mm_mul_ps(x, poly));
-		poly = _mm_add_ps(c0, _mm_mul_ps(x, poly));
-		__m128 v_post_scale = _mm_setr_ps(0.5f, 0.5f, -0.5f, -0.5f);
-		__m128 v_post_bias = _mm_setr_ps(-1.0f, -1.0f, 0.0f, 0.0f);
-		__m128 p_final = _mm_add_ps(_mm_mul_ps(poly, v_post_scale), v_post_bias);
-		__m128 v_amp = _mm_set1_ps(amp);
-		__m128 v_increment = _mm_mul_ps(p_final, v_amp);
-		__m128 v_z = _mm_load_ps(z);
-		v_z = _mm_add_ps(v_z, v_increment);
-		_mm_store_ps(z, v_z);
+	EquidistantLagrange(const std::vector<double>& y_values) {
+		n = y_values.size();
+		if (n > 0) {
+			generate_coefficients(y_values);
+		}
 	}
-	void Step()
-	{
-		v = z[0];
-		__m128 v_z = _mm_load_ps(z);
-		__m128 v_shifted = _mm_castsi128_ps(_mm_srli_si128(_mm_castps_si128(v_z), 4));
-		_mm_store_ps(z, v_shifted);
+	std::vector<double> get_horner_coeffs_descending() const {
+		std::vector<double> res = coeffs;
+		std::vector<double> reversed_coeffs(n);
+		for (int i = 0; i < n; ++i) {
+			reversed_coeffs[i] = coeffs[n - 1 - i];
+		}
+		return reversed_coeffs;
 	}
-	float GetBlep()
-	{
-		return v;
+	const std::vector<double>& get_raw_coeffs() const {
+		return coeffs;
+	}
+	double evaluate(double x) const {
+		if (n == 0) return 0.0;
+		double result = coeffs[n - 1]; // 最高阶系数
+		for (int i = n - 2; i >= 0; --i) {
+			result = result * x + coeffs[i];
+		}
+		return result;
 	}
 };
-
 class TableBlep
 {
 private:
-	constexpr static int wsiz = 12;//既决定窗长，又决定阶数
-	constexpr static int numTables = 12;
+	constexpr static int wsiz = 4;//既决定窗长，又决定阶数
+	constexpr static int numTables = 16;
 	float tableBlit[numTables + 1][wsiz] = { 0 };
 	float tableBlep[numTables + 1][wsiz] = { 0 };
 	float tableBlamp[numTables + 1][wsiz] = { 0 };
 	float buf[wsiz] = { 0 };
 	float v = 0;
 	int pos = 0;
+	float dc = 0, realdc = 0;
+
+	EquidistantLagrange lagrange;
 
 	void DFT(std::vector<std::complex<double>>& x, int n)
 	{
@@ -404,6 +430,47 @@ private:
 		}
 		for (int i = 0; i < n; ++i)x[i] = y[i] / (double)n;
 	}
+	void FFTCore(std::vector<std::complex<double>>& x, int n, bool inverse)
+	{
+		for (int i = 1, j = 0; i < n; i++)
+		{
+			int bit = n >> 1;
+			for (; j & bit; bit >>= 1)
+				j ^= bit;
+			j ^= bit;
+			if (i < j) std::swap(x[i], x[j]);
+		}
+		for (int len = 2; len <= n; len <<= 1)
+		{
+			double ang = 2 * M_PI / len * (inverse ? 1 : -1);
+			std::complex<double> wlen(cos(ang), sin(ang));
+			for (int i = 0; i < n; i += len)
+			{
+				std::complex<double> w(1);
+				for (int j = 0; j < len / 2; j++)
+				{
+					std::complex<double> u = x[i + j];
+					std::complex<double> v = x[i + j + len / 2] * w;
+					x[i + j] = u + v;
+					x[i + j + len / 2] = u - v;
+					w *= wlen;
+				}
+			}
+		}
+		if (inverse)
+		{
+			for (int i = 0; i < n; ++i) x[i] /= n;
+		}
+	}
+	void FFT(std::vector<std::complex<double>>& x, int n)
+	{
+		FFTCore(x, n, false);
+	}
+	void IFFT(std::vector<std::complex<double>>& x, int n)
+	{
+		FFTCore(x, n, true);
+	}
+
 	float BlackmanHarrisWindow(float x) {
 		if (x < 0 || x>1)return 0;
 		x = 2.0f * (float)M_PI * x;
@@ -421,17 +488,19 @@ public:
 
 	void Init(int usingMinPhase = 1, float wc = 1.0)
 	{
-		int n = wsiz * (numTables + 1);
+		const int ntable = wsiz * (numTables + 1);
+		const int n = 2048;
+
 		std::vector<std::complex<double>> x;
 		x.resize(n, 0);
 
 		for (int i = 0; i < n; ++i)
 		{
-			float t = (float)i / n * 2.0 - 1.0;
-			float wd = BlackmanHarrisWindow((float)i / n);
-			float sc;
-			float t2 = M_PI * t * wsiz / 2.0 * wc;
-			if (fabsf(t2) < 0.000001)sc = 1.0;
+			double t = (double)i / n * 2.0 - 1.0;
+			double wd = BlackmanHarrisWindow((double)i / n);
+			double sc;
+			double t2 = M_PI * t * wsiz / 2.0 * wc;
+			if (fabs(t2) < 0.000001)sc = 1.0;
 			else sc = sin(t2) / (t2);
 			x[i] = wd * sc;
 		}
@@ -442,16 +511,16 @@ public:
 			std::vector<std::complex<double>> x2(cepn, 0);
 			std::vector<std::complex<double>> cep(cepn, 0);
 			for (int i = 0; i < n; ++i) x2[i] = x[i];
-			DFT(x2, cepn);
+			FFT(x2, cepn);
 			for (int i = 0; i < cepn; ++i) cep[i] = std::log(std::abs(x2[i]) + 1e-100);
-			IDFT(cep, cepn); // 进入倒谱域
+			IFFT(cep, cepn); // 进入倒谱域
 			cep[0] = cep[0];//应用因果窗 
 			for (int i = 1; i < cepn / 2; ++i) cep[i] *= 2.0;
 			cep[cepn / 2] = cep[cepn / 2];
 			for (int i = cepn / 2 + 1; i < cepn; ++i) cep[i] = 0.0;
-			DFT(cep, cepn); // 变回频域 
+			FFT(cep, cepn); // 变回频域 
 			for (int i = 0; i < cepn; ++i) x2[i] = std::exp(cep[i]);
-			IDFT(x2, cepn); // 最小相位冲激
+			IFFT(x2, cepn); // 最小相位冲激
 			for (int i = 0; i < n; ++i) x[i] = x2[i];
 		}
 
@@ -479,14 +548,19 @@ public:
 			mpblamp[i] = -0.5 * (-mpblamp[i] / intv2 + (float)i / n) * (numTables + 1);
 		}
 
+
 		for (int i = 0; i < numTables + 1; ++i)
 		{
 			for (int j = 0; j < wsiz; ++j)
 			{
-				int k = j * numTables + i;//进行降采样
-				tableBlit[i][j] = mpblit[k];
-				tableBlep[i][j] = mpblep[k];
-				tableBlamp[i][j] = mpblamp[k];
+				int k = j * numTables + i;//max=ntable
+				double k2 = k * (n - 1) / ntable;//下采样
+				double frac = k2 - (int)k2;
+				int pos = k2;
+
+				tableBlit[i][j] = mpblit[pos] * (1.0 - frac) + mpblit[pos + 1] * frac;
+				tableBlep[i][j] = mpblep[pos] * (1.0 - frac) + mpblep[pos + 1] * frac;
+				tableBlamp[i][j] = mpblamp[pos] * (1.0 - frac) + mpblamp[pos + 1] * frac;
 			}
 			tableBlit[i][0] -= 1.0;
 		}
@@ -522,18 +596,30 @@ public:
 	}
 	float Get()
 	{
-		return v;
+		return v - dc;
 	}
+};
+
+class LagrangeNthBlep
+{
+private:
+	constexpr static int order = 4;//阶数
+public:
+
 };
 
 class BlepTest
 {
 private:
-	TableBlep sb;
+	Lagrange4pBlep sb;
 	float t = 0;
 	float dt = 0;
 	float k = 0;
 public:
+	BlepTest()
+	{
+		t = (float)(rand() * rand() * rand() * rand() % 10000) / 10000.0;
+	}
 	void SetParams(float freq, float curve, float disp, float sr)
 	{
 		dt = freq / sr;
@@ -544,7 +630,7 @@ public:
 	{
 		for (int i = 0; i < numSamples; ++i)
 		{
-			float vl = ProcessSampleTri();
+			float vl = ProcessSampleSaw();
 			float vr = vl;
 
 			outl[i] = vl / 8.0;
@@ -591,7 +677,7 @@ public:
 		if (tristate)
 		{
 			t += dt;
-			if (t > 1.0)
+			if (t >= 1.0)
 			{
 				float frac = t - 1.0;
 				float where = frac / dt;
@@ -603,7 +689,7 @@ public:
 		else
 		{
 			t -= dt;
-			if (t < -1.0)
+			if (t <= -1.0)
 			{
 				float frac = -t - 1.0;
 				float where = frac / dt;
@@ -618,5 +704,45 @@ public:
 		float dv = (v - dz) / dt;
 		dz = v;
 		return v;
+	}
+};
+
+class UnisonTest
+{
+private:
+	constexpr static int UnisonNum = 512;
+	BlepTest wav[UnisonNum];
+	float unitvol = 1.0 / sqrtf(UnisonNum);
+public:
+	void SetParams(float freq, float curve, float disp, float sr)
+	{
+		for (int i = 0; i < UnisonNum; ++i)
+		{
+			float f = freq * (1.0 + ((float)i / UnisonNum - 0.5) * curve);
+			wav[i].SetParams(f, 0, 0, sr);
+		}
+	}
+	void ProcessBlock(float* outl, float* outr, int numSamples)
+	{
+		for (int i = 0; i < numSamples; ++i)
+		{
+			float vl = ProcessSample();
+			float vr = vl;
+
+			outl[i] = vl / 8.0;
+			outr[i] = vr / 8.0;
+		}
+	}
+	float dc = 0;
+	inline float ProcessSample()
+	{
+		float sum = 0;
+		for (int i = 0; i < UnisonNum; ++i)
+		{
+			sum += wav[i].ProcessSampleSaw();
+		}
+		sum *= unitvol;
+		dc += 0.01 * (sum - dc);
+		return sum - dc;
 	}
 };
