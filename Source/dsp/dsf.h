@@ -365,7 +365,7 @@ public:
 class TableBlep
 {
 private:
-	constexpr static int wsiz = 6;//既决定窗长，又决定阶数
+	constexpr static int wsiz = 12;//既决定窗长，又决定阶数
 	constexpr static int numTables = 12;
 	float tableBlit[numTables + 1][wsiz] = { 0 };
 	float tableBlep[numTables + 1][wsiz] = { 0 };
@@ -416,7 +416,7 @@ private:
 public:
 	TableBlep()
 	{
-		Init(1, 0.75);
+		Init(1, 1);
 	}
 
 	void Init(int usingMinPhase = 1, float wc = 1.0)
@@ -476,7 +476,7 @@ public:
 		{
 			mpblit[i] = mpblit[i] / intv * (numTables + 1);
 			mpblep[i] = mpblep[i] / intv - 1.0;
-			mpblamp[i] = (mpblamp[i] / intv2 - (float)i / n) * (numTables + 1);
+			mpblamp[i] = -0.5 * (-mpblamp[i] / intv2 + (float)i / n) * (numTables + 1);
 		}
 
 		for (int i = 0; i < numTables + 1; ++i)
@@ -544,7 +544,7 @@ public:
 	{
 		for (int i = 0; i < numSamples; ++i)
 		{
-			float vl = ProcessSampleSaw();
+			float vl = ProcessSampleTri();
 			float vr = vl;
 
 			outl[i] = vl / 8.0;
@@ -585,6 +585,7 @@ public:
 		return  imp + v;
 	}
 	float tristate = 0;
+	float dz = 0;
 	inline float ProcessSampleTri()
 	{
 		if (tristate)
@@ -594,7 +595,7 @@ public:
 			{
 				float frac = t - 1.0;
 				float where = frac / dt;
-				sb.Add(-dt, where, 2);
+				sb.Add(-dt * 2.0, where, 2);//1dt -> -1dt
 				tristate = !tristate;
 				t = 1.0 - frac;
 			}
@@ -606,13 +607,16 @@ public:
 			{
 				float frac = -t - 1.0;
 				float where = frac / dt;
-				sb.Add(dt, where, 2);
+				sb.Add(dt * 2.0, where, 2);
 				tristate = !tristate;
 				t = -1.0 + frac;
 			}
 		}
 		sb.Step();
-		float v = sb.Get();
-		return  t + v;
+		float r = sb.Get();
+		float v = t + r;
+		float dv = (v - dz) / dt;
+		dz = v;
+		return v;
 	}
 };
