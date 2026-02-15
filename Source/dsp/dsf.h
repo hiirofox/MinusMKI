@@ -6,6 +6,8 @@
 #include <vector>
 
 #include "TableBlep.h"
+#include "TableAdaa.h"
+
 
 class Blit
 {
@@ -425,11 +427,42 @@ public:
 	}
 };
 
+class AdaaTest
+{
+private:
+	TableADAA adaa{ [](double x) {return x; },-1.0,2.0 };
+	double t = 0, dt = 0;
+public:
+	void SetParams(float freq, float curve, float disp, float sr)
+	{
+		dt = freq / sr;
+	}
+
+	double lastv = 0, lastt = 0;
+	inline float ProcessSampleSaw()
+	{
+		t += dt;
+
+		double t1 = t;
+		if (t >= 1.0) t -= (int)t;
+		double t2 = t + dt;
+		double v1 = 0.5 * t1 * t1;
+		double v2 = 0.5 * t2 * t2;
+		double dv1 = v2 - v1;
+		double dt1 = t2 - t1;
+		double y = dv1 / dt1;
+		
+		return adaa.Calc(t);
+		//return y;
+		//return t;
+	}
+};
+
 class UnisonTest
 {
 private:
-	constexpr static int UnisonNum = 256;
-	BlepTest wav[UnisonNum];
+	constexpr static int UnisonNum = 1;
+	AdaaTest wav[UnisonNum];
 	float unitvol = 1.0 / sqrtf(UnisonNum);
 public:
 	void SetParams(float freq, float curve, float disp, float sr)
