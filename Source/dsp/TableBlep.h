@@ -17,7 +17,6 @@ private:
 	float buf[TableBlepCoeffs::wsiz] = { 0 };
 	float v = 0;
 	int pos = 0;
-	float dc = 0, realdc = 0;
 public:
 	TableBlep();
 	void Add(float amp, float where, int stage = 1);

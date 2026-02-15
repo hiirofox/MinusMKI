@@ -462,7 +462,7 @@ class UnisonTest
 {
 private:
 	constexpr static int UnisonNum = 1;
-	AdaaTest wav[UnisonNum];
+	BlepTest wav[UnisonNum];
 	float unitvol = 1.0 / sqrtf(UnisonNum);
 public:
 	void SetParams(float freq, float curve, float disp, float sr)
@@ -493,7 +493,7 @@ public:
 			sum += wav[i].ProcessSampleSaw();
 		}
 		sum *= unitvol;
-		dc += 0.001 * (sum - dc);
+		//dc += 0.001 * (sum - dc);
 		return sum - dc;
 	}
 };

@@ -83,6 +83,46 @@ namespace TableBlepCoeffs
 			0.01168f * cosf(3.0f * x);
 	}
 
+	void ApplyDCCompensation(std::vector<float>& res, int size)
+	{
+		if (size <= 1) return;
+
+		// 1. 计算当前残差向量中存在的 DC 总量 (积分)
+		double currentDCSum = 0.0;
+		for (int i = 0; i < size; ++i) {
+			currentDCSum += res[i];
+		}
+
+		// 如果 DC 已经极小，直接返回，避免浮点精度问题
+		if (std::abs(currentDCSum) < 1e-9) return;
+
+		// 2. 计算 Blackman-Harris 窗在离散点上的总能量 (积分)
+		double windowSum = 0.0;
+		for (int i = 0; i < size; ++i) {
+			// 将索引映射到 0.0 -> 1.0
+			float x = (float)i / (float)(size - 1);
+			windowSum += BlackmanHarrisWindow(x);
+		}
+
+		// 防止除以零 (虽然对于正常窗函数不可能发生)
+		if (std::abs(windowSum) < 1e-9) return;
+
+		// 3. 计算缩放系数 k
+		// 我们要求: currentDCSum - (k * windowSum) = 0
+		// 所以: k = currentDCSum / windowSum
+		double scale = currentDCSum / windowSum;
+
+		// 4. 应用补偿
+		// res_new[i] = res[i] - (Window[i] * scale)
+		for (int i = 0; i < size; ++i) {
+			float x = (float)i / (float)(size - 1);
+			float compensation = BlackmanHarrisWindow(x) * (float)scale;
+
+			// 核心操作：减去平滑的直流分量
+			res[i] -= compensation;
+		}
+	}
+
 	int isInit = 0;
 	float tableBlit[numTables + 1][wsiz] = { 0 };
 	float tableBlep[numTables + 1][wsiz] = { 0 };
@@ -152,6 +192,10 @@ namespace TableBlepCoeffs
 			mpblep[i] = mpblep[i] / intv - 1.0;
 			mpblamp[i] = -0.5 * (-mpblamp[i] / intv2 + (float)i / n) * (numTables + 1);
 		}
+		//todo:为mpblit,mpblep,mpblamp叠加直流补偿窗
+		ApplyDCCompensation(mpblit, n);
+		ApplyDCCompensation(mpblep, n);
+		ApplyDCCompensation(mpblamp, n);
 
 		for (int i = 0; i < numTables + 1; ++i)
 		{
@@ -165,6 +209,7 @@ namespace TableBlepCoeffs
 				tableBlit[i][j] = mpblit[pos] * (1.0 - frac) + mpblit[pos + 1] * frac;
 				tableBlep[i][j] = mpblep[pos] * (1.0 - frac) + mpblep[pos + 1] * frac;
 				tableBlamp[i][j] = mpblamp[pos] * (1.0 - frac) + mpblamp[pos + 1] * frac;
+
 			}
 			tableBlit[i][0] -= 1.0;
 		}
@@ -207,5 +252,5 @@ void TableBlep::Step()
 }
 float TableBlep::Get()
 {
-	return v - dc;
+	return v;
 }
