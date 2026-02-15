@@ -145,6 +145,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="..\..\Source\dsp\TableBlep.cpp"/>
+    <ClCompile Include="..\..\Source\dsp\TableAdaa.cpp"/>
     <ClCompile Include="..\..\Source\ui\LM_slider.cpp"/>
     <ClCompile Include="..\..\Source\PluginProcessor.cpp"/>
     <ClCompile Include="..\..\Source\PluginEditor.cpp"/>
@@ -2835,6 +2836,7 @@
   <ItemGroup>
     <ClInclude Include="..\..\Source\dsp\dsf.h"/>
     <ClInclude Include="..\..\Source\dsp\TableBlep.h"/>
+    <ClInclude Include="..\..\Source\dsp\TableAdaa.h"/>
     <ClInclude Include="..\..\Source\ui\LM_slider.h"/>
     <ClInclude Include="..\..\Source\PluginProcessor.h"/>
     <ClInclude Include="..\..\Source\PluginEditor.h"/>

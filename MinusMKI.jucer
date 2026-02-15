@@ -8,6 +8,8 @@
         <FILE id="Pt8ol3" name="dsf.h" compile="0" resource="0" file="Source/dsp/dsf.h"/>
         <FILE id="Tucgw6" name="TableBlep.cpp" compile="1" resource="0" file="Source/dsp/TableBlep.cpp"/>
         <FILE id="gruzQO" name="TableBlep.h" compile="0" resource="0" file="Source/dsp/TableBlep.h"/>
+        <FILE id="wk7BXX" name="TableAdaa.cpp" compile="1" resource="0" file="Source/dsp/TableAdaa.cpp"/>
+        <FILE id="mS1CVt" name="TableAdaa.h" compile="0" resource="0" file="Source/dsp/TableAdaa.h"/>
       </GROUP>
       <GROUP id="{F0E83B79-C7E3-715C-DB33-08BD7D3CCD14}" name="ui">
         <FILE id="CaKJLD" name="LM_slider.cpp" compile="1" resource="0" file="Source/ui/LM_slider.cpp"/>
