@@ -451,7 +451,7 @@ public:
 		double dv1 = v2 - v1;
 		double dt1 = t2 - t1;
 		double y = dv1 / dt1;
-		
+
 		return adaa.Calc(t);
 		//return y;
 		//return t;
@@ -463,6 +463,7 @@ class UnisonTest
 private:
 	constexpr static int UnisonNum = 1;
 	BlepTest wav[UnisonNum];
+	TableADAA adaa{ [](double x) {return atan(x * 10.0); }, -5, 5 ,3 };
 	float unitvol = 1.0 / sqrtf(UnisonNum);
 public:
 	void SetParams(float freq, float curve, float disp, float sr)
@@ -484,7 +485,6 @@ public:
 			outr[i] = vr / 8.0;
 		}
 	}
-	float dc = 0;
 	inline float ProcessSample()
 	{
 		float sum = 0;
@@ -493,7 +493,6 @@ public:
 			sum += wav[i].ProcessSampleSaw();
 		}
 		sum *= unitvol;
-		//dc += 0.001 * (sum - dc);
-		return sum - dc;
+		return sum;
 	}
 };

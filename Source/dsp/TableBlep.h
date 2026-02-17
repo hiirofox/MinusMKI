@@ -9,6 +9,7 @@ namespace TableBlepCoeffs
 {
 	constexpr static int wsiz = 24;//既决定窗长，又决定阶数
 	constexpr static int numTables = 127;
+	constexpr static float bandLimit = 0.95;
 }
 
 class TableBlep

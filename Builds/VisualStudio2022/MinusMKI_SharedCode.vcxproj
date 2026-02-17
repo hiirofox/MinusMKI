@@ -2837,6 +2837,7 @@
     <ClInclude Include="..\..\Source\dsp\dsf.h"/>
     <ClInclude Include="..\..\Source\dsp\TableBlep.h"/>
     <ClInclude Include="..\..\Source\dsp\TableAdaa.h"/>
+    <ClInclude Include="..\..\Source\dsp\Osc.h"/>
     <ClInclude Include="..\..\Source\ui\LM_slider.h"/>
     <ClInclude Include="..\..\Source\PluginProcessor.h"/>
     <ClInclude Include="..\..\Source\PluginEditor.h"/>

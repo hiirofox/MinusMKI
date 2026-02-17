@@ -86,40 +86,43 @@ namespace TableBlepCoeffs
 	void ApplyDCCompensation(std::vector<float>& res, int size)
 	{
 		if (size <= 1) return;
-
-		// 1. 计算当前残差向量中存在的 DC 总量 (积分)
+		auto DCWindow = [](float x) {return BlackmanHarrisWindow(x); };
 		double currentDCSum = 0.0;
 		for (int i = 0; i < size; ++i) {
 			currentDCSum += res[i];
 		}
-
-		// 如果 DC 已经极小，直接返回，避免浮点精度问题
 		if (std::abs(currentDCSum) < 1e-9) return;
-
-		// 2. 计算 Blackman-Harris 窗在离散点上的总能量 (积分)
 		double windowSum = 0.0;
 		for (int i = 0; i < size; ++i) {
-			// 将索引映射到 0.0 -> 1.0
 			float x = (float)i / (float)(size - 1);
-			windowSum += BlackmanHarrisWindow(x);
+			windowSum += DCWindow(x);
 		}
-
-		// 防止除以零 (虽然对于正常窗函数不可能发生)
 		if (std::abs(windowSum) < 1e-9) return;
-
-		// 3. 计算缩放系数 k
-		// 我们要求: currentDCSum - (k * windowSum) = 0
-		// 所以: k = currentDCSum / windowSum
 		double scale = currentDCSum / windowSum;
-
-		// 4. 应用补偿
-		// res_new[i] = res[i] - (Window[i] * scale)
 		for (int i = 0; i < size; ++i) {
 			float x = (float)i / (float)(size - 1);
-			float compensation = BlackmanHarrisWindow(x) * (float)scale;
-
-			// 核心操作：减去平滑的直流分量
+			float compensation = DCWindow(x) * (float)scale;
 			res[i] -= compensation;
+		}
+	}
+	void ApplyLinearWindowDCCorrection(std::vector<float>& data, int n)
+	{
+		float lv = data[0], rv = data[n - 1];
+		float dclinear = (lv + rv) * 0.5 * n;//线性窗的dc
+		for (int i = 0; i < n; ++i)
+		{
+			float x = (float)i / (n - 1);
+			data[i] -= lv * (1.0 - x) + rv * x;//先展平
+		}
+		float dcdata = 0;//展平后的data的dc
+		for (float x : data)dcdata += x;
+
+		float k = -dclinear / dcdata;//让展平后的data的dc等于负线性窗的dc
+		for (int i = 0; i < n; ++i)
+		{
+			float x = (float)i / (n - 1);
+			data[i] *= k;//应用dc补偿增益
+			data[i] += lv * (1.0 - x) + rv * x;//恢复之前的边界
 		}
 	}
 
@@ -135,6 +138,9 @@ namespace TableBlepCoeffs
 
 		const int ntable = wsiz * (numTables + 1);
 		const int n = 32768;
+		const int startpos = 0, endpos = n;
+		const int len = endpos - startpos;
+		wc *= (float)n / len;
 
 		std::vector<std::complex<double>> x;
 		x.resize(n, 0);
@@ -152,7 +158,7 @@ namespace TableBlepCoeffs
 
 		if (usingMinPhase)
 		{
-			int cepn = n * 4;
+			int cepn = n * 8;
 			std::vector<std::complex<double>> x2(cepn, 0);
 			std::vector<std::complex<double>> cep(cepn, 0);
 			for (int i = 0; i < n; ++i) x2[i] = x[i];
@@ -169,16 +175,28 @@ namespace TableBlepCoeffs
 			for (int i = 0; i < n; ++i) x[i] = x2[i];
 		}
 
+		for (int i = 0; i < len; ++i)
+		{
+			float t = (float)i / (len - 1);
+			//float wnd = powf(BlackmanHarrisWindow(powf(t, 0.4)), 0.6);
+			float wnd = BlackmanHarrisWindow(powf(t, 10.0) * 0.5 + 0.5);
+			x[i] = x[i + startpos] * (double)wnd;
+		}
+		for (int i = len; i < n; ++i)
+		{
+			x[i] = 0;
+		}
+
 		std::vector<float> mpblit;
 		std::vector<float> mpblep;
 		std::vector<float> mpblamp;
-		mpblit.resize(n, 0);
-		mpblep.resize(n, 0);
-		mpblamp.resize(n, 0);
+		mpblit.resize(len, 0);
+		mpblep.resize(len, 0);
+		mpblamp.resize(len, 0);
 
 		float intv = 0;//积分
 		float intv2 = 0;
-		for (int i = 0; i < n; ++i)
+		for (int i = 0; i < len; ++i)
 		{
 			intv += x[i].real();
 			intv2 += intv;
@@ -186,23 +204,23 @@ namespace TableBlepCoeffs
 			mpblep[i] = intv;
 			mpblamp[i] = intv2;
 		}
-		for (int i = 0; i < n; ++i)
+		for (int i = 0; i < len; ++i)
 		{
 			mpblit[i] = mpblit[i] / intv * (numTables + 1);
 			mpblep[i] = mpblep[i] / intv - 1.0;
-			mpblamp[i] = -0.5 * (-mpblamp[i] / intv2 + (float)i / n) * (numTables + 1);
+			mpblamp[i] = -0.5 * (-mpblamp[i] / intv2 + (float)i / len) * (numTables + 1);
 		}
-		//todo:为mpblit,mpblep,mpblamp叠加直流补偿窗
-		ApplyDCCompensation(mpblit, n);
-		ApplyDCCompensation(mpblep, n);
-		ApplyDCCompensation(mpblamp, n);
+		//为mpblit,mpblep,mpblamp叠加直流补偿窗
+		ApplyDCCompensation(mpblit, len);
+		ApplyDCCompensation(mpblep, len);
+		ApplyDCCompensation(mpblamp, len);
 
 		for (int i = 0; i < numTables + 1; ++i)
 		{
 			for (int j = 0; j < wsiz; ++j)
 			{
 				int k = j * numTables + i;//max=ntable
-				double k2 = k * (n - 1) / ntable;//下采样
+				double k2 = k * (len - 1) / ntable;//下采样
 				double frac = k2 - (int)k2;
 				int pos = k2;
 
@@ -218,7 +236,7 @@ namespace TableBlepCoeffs
 
 TableBlep::TableBlep()
 {
-	TableBlepCoeffs::ApplySincBlep(true, 0.95);
+	TableBlepCoeffs::ApplySincBlep(true, TableBlepCoeffs::bandLimit);
 }
 
 void TableBlep::Add(float amp, float where, int stage)//0:blit 1:blep 2:blamp

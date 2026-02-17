@@ -3555,6 +3555,9 @@
     <ClInclude Include="..\..\Source\dsp\TableAdaa.h">
       <Filter>MinusMKI\Source\dsp</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\Source\dsp\Osc.h">
+      <Filter>MinusMKI\Source\dsp</Filter>
+    </ClInclude>
     <ClInclude Include="..\..\Source\ui\LM_slider.h">
       <Filter>MinusMKI\Source\ui</Filter>
     </ClInclude>

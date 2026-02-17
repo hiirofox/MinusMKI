@@ -9,7 +9,7 @@
 #pragma once
 
 #include <JuceHeader.h>
-#include "dsp/dsf.h"
+#include "dsp/Osc.h"
 
 //==============================================================================
 /**
@@ -69,7 +69,7 @@ private:
 	juce::AudioProcessorValueTreeState Params{ *this, nullptr, "Parameters", createParameterLayout() };
 
 	float freq = 1.0;
-	UnisonTest osc;
+	MinusMKI::OscTest osc;
 
 	//==============================================================================
 	JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(LModelAudioProcessor)

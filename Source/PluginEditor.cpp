@@ -29,10 +29,10 @@ LModelAudioProcessorEditor::LModelAudioProcessorEditor(LModelAudioProcessor& p)
 	K_Pitch.setText("pitch", "");
 	K_Pitch.ParamLink(audioProcessor.GetParams(), "pitch");
 	addAndMakeVisible(K_Pitch);
-	K_Low.setText("low", "");
+	K_Low.setText("sync", "");
 	K_Low.ParamLink(audioProcessor.GetParams(), "low");
 	addAndMakeVisible(K_Low);
-	K_High.setText("high", "");
+	K_High.setText("fb", "");
 	K_High.ParamLink(audioProcessor.GetParams(), "high");
 	addAndMakeVisible(K_High);
 
