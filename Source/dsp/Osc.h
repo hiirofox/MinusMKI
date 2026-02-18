@@ -2,6 +2,7 @@
 
 #include "TableBlep.h"
 #include <functional>
+#include <cassert>
 
 namespace MinusMKI
 {
@@ -35,51 +36,99 @@ namespace MinusMKI
 		TableBlep blep;
 		float t = 0;
 		float dt = 0;
+
+		int isWrap = 0;
+		float t2 = 0, amp2 = 0, where2 = 0;
 	public:
 		bool IsWrapThisSample() override
 		{
-			return 0;
+			return isWrap;
 		}
 		float GetWrapWhere() override
 		{
-			return -1;
+			return where2;
 		}
+
 		void Step(float dt1) override
 		{
 			dt = dt1;
-			if (dt > 10.0)dt = 10.0;
-			if (dt < -10.0)dt = -10.0;
+			if (dt > 1.0)dt = 1.0;
+			if (dt < -1.0)dt = -1.0;
 			t += dt;
-		}
-		void WrapPhaseDown()
-		{
-			do {
-				t -= 1.0;
-				float where = t / dt;
-				blep.Add(-1.0, where);
-			} while (t >= 1.0);
-		}
-		void WrapPhaseUp()
-		{
-			do {
-				float where = t / dt;
-				blep.Add(1.0, where);
-				t += 1.0;
-			} while (t < 0.0);
-		}
-		void UpdateState() override
-		{
+
 			if (t >= 1.0)WrapPhaseDown();
 			else if (t < 0.0)WrapPhaseUp();
 		}
+		void WrapPhaseDown()//只预备状态，不更新
+		{
+			t2 = t;
+			amp2 = -1.0;
+			t2 -= 1.0;
+			where2 = t2 / dt;
+			//if (where2 < 0 || where2 > 1) assert(0);
+			if (where2 < 0.0)where2 = 0.0;//不要相信浮点
+			if (where2 > 1.0)where2 = 1.0;
+			isWrap = 1;
+		}
+		void WrapPhaseUp()//只预备状态，不更新
+		{
+			t2 = t;
+			where2 = t2 / dt;
+			//if (where2 < 0 || where2 > 1) assert(0);
+			if (where2 < 0.0)where2 = 0.0;
+			if (where2 > 1.0)where2 = 1.0;
+			amp2 = 1.0;
+			t2 += 1.0;
+			isWrap = 1;
+		}
+		void ApplyWrap()
+		{
+			t = t2;
+			blep.Add(amp2, where2);
+		}
+		void DoSync(float dstWhere)
+		{
+			float syncPhase = dstWhere * dt;
+			float diff = syncPhase - t;
+			blep.Add(diff, dstWhere);
+			t = syncPhase;
+		}
+		void UpdateState() override
+		{
+			bool isSync = syncDst && syncDst->IsWrapThisSample();
+			float syncTime = isSync ? syncDst->GetWrapWhere() : -1.0f;
+			float selfTime = isWrap ? where2 : -1.0f;
+
+			if (isWrap && !isSync)
+			{
+				ApplyWrap();
+			}
+			else if (!isWrap && isSync)
+			{
+				DoSync(syncTime);
+			}
+			else if (isWrap && isSync)
+			{
+				if (syncTime > selfTime)
+				{
+					DoSync(syncTime);
+				}
+				else
+				{
+					ApplyWrap();
+					DoSync(syncTime);
+				}
+			}
+		}
+
 		float Get() override
 		{
 			blep.Step();
 			float v = t + blep.Get();
+			isWrap = 0;
 			return v * 2.0 - 1.0;
 		}
 	};
-
 
 	class OscTest
 	{
