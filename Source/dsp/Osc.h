@@ -8,96 +8,78 @@ namespace MinusMKI
 	class Oscillator
 	{
 	private:
-		std::vector<Oscillator*> syncfunc;
+	protected:
+		Oscillator* syncDst = nullptr;
 	public:
-		void RegisterSyncOscillator(Oscillator& osc)
+		void SyncTo(Oscillator& dst)
 		{
-			if (&osc != this) syncfunc.push_back(&osc);
+			syncDst = &dst;
 		}
-		void UnregisterSyncOscillator(Oscillator& osc)
+		void UnregSync()
 		{
-			syncfunc.erase(std::remove_if(syncfunc.begin(), syncfunc.end(),
-				[&osc](const Oscillator* ptr) { return ptr == &osc; }),
-				syncfunc.end());
+			syncDst = nullptr;
 		}
-		void Sync(float where)
-		{
-			for (auto& func : syncfunc)
-			{
-				func->ResetPhase(where);
-			}
-		}
-		virtual void PrepareSample(float dt) = 0;//分开是为了更好处理振荡器内复杂状态
-		virtual float ProcessSample() = 0;
 
-		virtual void ResetPhase(float where) = 0;
+		virtual bool IsWrapThisSample() = 0;//这个采样是否发生wrap
+		virtual float GetWrapWhere() = 0;//获取目前的采样在哪里wrap
+
+		virtual void Step(float dt) = 0;//分开是为了更好处理振荡器内复杂状态
+		virtual void UpdateState() = 0;
+		virtual float Get() = 0;
+
 	};
 
 	class SawOscillator :public Oscillator
 	{
 	private:
 		TableBlep blep;
-		float t = 0, dt = 0;
-		float where = 0, syncwhere = 0;
-		int isReset = 0, isSyncReset = 0;
+		float t = 0;
+		float dt = 0;
 	public:
-		void PrepareSample(float dt1) override
+		bool IsWrapThisSample() override
+		{
+			return 0;
+		}
+		float GetWrapWhere() override
+		{
+			return -1;
+		}
+		void Step(float dt1) override
 		{
 			dt = dt1;
-			if (dt > 1)dt = 1;
-
+			if (dt > 10.0)dt = 10.0;
+			if (dt < -10.0)dt = -10.0;
 			t += dt;
-			if (t >= 1.0)
-			{
-				where = (t - 1) / dt;
-				Sync(where);
-				isReset = 1;
-			}
 		}
-		void ResetPhase(float where) override
+		void WrapPhaseDown()
 		{
-			syncwhere = where;
-			isSyncReset = 1;
+			do {
+				t -= 1.0;
+				float where = t / dt;
+				blep.Add(-1.0, where);
+			} while (t >= 1.0);
 		}
-
-		void Wrap1()
+		void WrapPhaseUp()
 		{
-			blep.Add(-1.0f, where);
-			t -= 1.0f;
+			do {
+				float where = t / dt;
+				blep.Add(1.0, where);
+				t += 1.0;
+			} while (t < 0.0);
 		}
-		void Reset(float rswhere)
+		void UpdateState() override
 		{
-			float t0 = rswhere * dt;
-			blep.Add(t0 - t, rswhere);
-			t = t0;
+			if (t >= 1.0)WrapPhaseDown();
+			else if (t < 0.0)WrapPhaseUp();
 		}
-		float ProcessSample() override
+		float Get() override
 		{
-			if (isSyncReset)
-			{
-				if (isReset && (where > syncwhere))
-				{
-					Wrap1();
-					Reset(syncwhere);
-				}
-				else
-				{
-					Reset(syncwhere);
-				}
-			}
-			else if (isReset)
-			{
-				Wrap1();
-			}
-			
-			isSyncReset = 0;
-			isReset = 0;
-
 			blep.Step();
 			float v = t + blep.Get();
-			return v * 2.0f - 1.0f;
+			return v * 2.0 - 1.0;
 		}
 	};
+
 
 	class OscTest
 	{
@@ -113,14 +95,16 @@ namespace MinusMKI
 			dt1 = freq / sr;
 			dt2 = freq * sync / sr;
 			this->fb = fb;
-			osc1.RegisterSyncOscillator(osc2);
+			osc2.SyncTo(osc1);
 		}
 		float ProcessSample()
 		{
-			osc1.PrepareSample(dt1 + fbv * fb);
-			osc2.PrepareSample(dt2 + fbv * fb);
-			float v1 = osc1.ProcessSample();
-			float v2 = osc2.ProcessSample();
+			osc1.Step(dt1 + fbv * fb);
+			osc2.Step(dt2 + fbv * fb);
+			osc1.UpdateState();
+			osc2.UpdateState();
+			float v1 = osc1.Get();
+			float v2 = osc2.Get();
 			fbv = v2;
 			return fbv;
 		}
