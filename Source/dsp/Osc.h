@@ -159,7 +159,7 @@ namespace MinusMKI
 		{
 			duty *= 0.5;
 			this->duty = duty;
-			saw2.SetStartPhase(0);
+			saw1.SetStartPhase(0);
 			saw2.SetStartPhase(duty);
 		}
 		void SetWaveform(float form)
