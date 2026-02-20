@@ -229,7 +229,7 @@ namespace TableBlepCoeffs
 				tableBlamp[i][j] = mpblamp[pos] * (1.0 - frac) + mpblamp[pos + 1] * frac;
 
 			}
-			tableBlit[i][0] -= 1.0;
+			//tableBlit[i][0] -= 1.0;
 		}
 	}
 }
