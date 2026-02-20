@@ -11,6 +11,7 @@ namespace MinusMKI
 	private:
 	protected:
 		Oscillator* syncDst = nullptr;
+		using Blep = TableBlep;
 	public:
 		virtual void SyncTo(Oscillator& dst)
 		{
@@ -33,7 +34,7 @@ namespace MinusMKI
 	class SawOscillator :public Oscillator
 	{
 	private:
-		TableBlep blep;
+		Blep blep;
 		float t = 0;
 		float dt = 0;
 
@@ -264,11 +265,13 @@ namespace MinusMKI
 		WaveformOsc osc2;
 		float dt1 = 0, dt2 = 0;
 		float duty = 0.5;
+		float fb = 0, fbv = 0;
 	public:
-		void SetParams(float freq, float sync, float pwm, float form, float sr)
+		void SetParams(float freq, float sync, float pwm, float form, float fb, float sr)
 		{
 			dt1 = freq / sr;
 			dt2 = freq * sync / sr;
+			this->fb = fb;
 			this->duty = pwm;
 			osc2.SyncTo(osc1);
 			osc2.SetPWM(duty);
@@ -276,10 +279,11 @@ namespace MinusMKI
 		}
 		float ProcessSample()
 		{
-			osc1.Step(dt1);
-			osc2.Step(dt2);
+			osc1.Step(dt1 + fbv * fb);
+			osc2.Step(dt2 + fbv * fb);
 			float v1 = osc1.Get();
 			float v2 = osc2.Get();
+			fbv = v2;
 			return v2;
 		}
 		void ProcessBlock(float* outl, float* outr, int numSamples)

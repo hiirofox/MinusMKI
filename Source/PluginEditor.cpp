@@ -38,13 +38,13 @@ LModelAudioProcessorEditor::LModelAudioProcessorEditor(LModelAudioProcessor& p)
 	K_P3.setText("form", "");
 	K_P3.ParamLink(audioProcessor.GetParams(), "p3");
 	addAndMakeVisible(K_P3);
-	K_P4.setText("p4", "param4");
+	K_P4.setText("param4", "");
 	K_P4.ParamLink(audioProcessor.GetParams(), "p4");
 	addAndMakeVisible(K_P4);
-	K_P5.setText("p5", "param5");
+	K_P5.setText("param5", "");
 	K_P5.ParamLink(audioProcessor.GetParams(), "p5");
 	addAndMakeVisible(K_P5);
-	K_P6.setText("p6", "param6");
+	K_P6.setText("param6", "");
 	K_P6.ParamLink(audioProcessor.GetParams(), "p6");
 	addAndMakeVisible(K_P6);
 
