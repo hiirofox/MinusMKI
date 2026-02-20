@@ -215,6 +215,16 @@ namespace MinusMKI
 			saw1.Step(dt);
 			saw2.Step(dt);
 		}
+		inline float GetPwmIntegral(float p, float d) const {
+			p -= (int)p;
+			if (p < 0.0f) p += 1.0f;
+			if (p <= 1.0f - d) {
+				return -2.0f * d * p;
+			}
+			else {
+				return 2.0f * (1.0f - d) * (p - 1.0f);
+			}
+		}
 		float Get() final override
 		{
 			float v1 = saw1.Get();
@@ -226,13 +236,11 @@ namespace MinusMKI
 			{
 				float syncdt = syncDst->GetDT();
 				float k = dt / syncdt;
-				float r = k - (int)k;
-				if (r <= 1.0f - duty) {
-					pwmdc = -2.0f * duty * r / k;
-				}
-				else {
-					pwmdc = 2.0f * (1.0f - duty) * (r - 1.0f) / k;
-				}
+				float phaseStart = startPhase;
+				float phaseEnd = startPhase + k;
+				float intStart = GetPwmIntegral(phaseStart, duty);
+				float intEnd = GetPwmIntegral(phaseEnd, duty);
+				pwmdc = (intEnd - intStart) / k;
 			}
 			pwm -= pwmdc; // 减去计算出的 DC，得到纯正的无交流偏移波形
 
@@ -320,7 +328,7 @@ namespace MinusMKI
 	class UnisonTest2
 	{
 	private:
-		constexpr static int UnisonNum = 1;
+		constexpr static int UnisonNum = 200;
 		OscTest wav[UnisonNum];
 		float unitvol = 1.0 / sqrtf(UnisonNum);
 	public:
@@ -329,7 +337,7 @@ namespace MinusMKI
 			for (int i = 0; i < UnisonNum; ++i)
 			{
 				float randphase = (float)rand() / RAND_MAX;
-				wav[i].SetStartPhase(0.46);
+				wav[i].SetStartPhase(randphase);
 			}
 		}
 		void SetParams(float freq, float sync, float pwm, float form, float fb, float detune, float sr)
