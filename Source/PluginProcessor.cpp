@@ -31,8 +31,13 @@ juce::AudioProcessorValueTreeState::ParameterLayout LModelAudioProcessor::create
 {
 	juce::AudioProcessorValueTreeState::ParameterLayout layout;
 	layout.add(std::make_unique<juce::AudioParameterFloat>("pitch", "pitch", -96, 96, 0));
-	layout.add(std::make_unique<juce::AudioParameterFloat>("low", "low", 0, 1, 0));
-	layout.add(std::make_unique<juce::AudioParameterFloat>("high", "high", 0, 1, 0));
+	layout.add(std::make_unique<juce::AudioParameterFloat>("p1", "p1", 0, 1, 0));
+	layout.add(std::make_unique<juce::AudioParameterFloat>("p2", "p2", 0, 1, 0));
+	layout.add(std::make_unique<juce::AudioParameterFloat>("p3", "p3", 0, 1, 0));
+	layout.add(std::make_unique<juce::AudioParameterFloat>("p4", "p4", 0, 1, 0));
+	layout.add(std::make_unique<juce::AudioParameterFloat>("p5", "p5", 0, 1, 0));
+	layout.add(std::make_unique<juce::AudioParameterFloat>("p6", "p6", 0, 1, 0));
+
 	return layout;
 }
 
@@ -170,10 +175,14 @@ void LModelAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
 	float SampleRate = getSampleRate();
 
 	float pitch = *Params.getRawParameterValue("pitch");
-	float low = *Params.getRawParameterValue("low");
-	float high = *Params.getRawParameterValue("high");
+	float p1 = *Params.getRawParameterValue("p1");
+	float p2 = *Params.getRawParameterValue("p2");
+	float p3 = *Params.getRawParameterValue("p3");
+	float p4 = *Params.getRawParameterValue("p4");
+	float p5 = *Params.getRawParameterValue("p5");
+	float p6 = *Params.getRawParameterValue("p6");
 	float freq = 440.0 * pow(2.0, pitch / 12.0);
-	osc.SetParams(freq, low * 10.0 + 1.0, high, getSampleRate());
+	osc.SetParams(freq, p1 * 10.0 + 1.0, p2, p3 * 2, getSampleRate());
 	osc.ProcessBlock(wavbufl, wavbufr, numSamples);
 }
 

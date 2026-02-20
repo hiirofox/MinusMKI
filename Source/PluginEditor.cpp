@@ -29,12 +29,25 @@ LModelAudioProcessorEditor::LModelAudioProcessorEditor(LModelAudioProcessor& p)
 	K_Pitch.setText("pitch", "");
 	K_Pitch.ParamLink(audioProcessor.GetParams(), "pitch");
 	addAndMakeVisible(K_Pitch);
-	K_Low.setText("sync", "");
-	K_Low.ParamLink(audioProcessor.GetParams(), "low");
-	addAndMakeVisible(K_Low);
-	K_High.setText("fb", "");
-	K_High.ParamLink(audioProcessor.GetParams(), "high");
-	addAndMakeVisible(K_High);
+	K_P1.setText("sync", "");
+	K_P1.ParamLink(audioProcessor.GetParams(), "p1");
+	addAndMakeVisible(K_P1);
+	K_P2.setText("pwm", "");
+	K_P2.ParamLink(audioProcessor.GetParams(), "p2");
+	addAndMakeVisible(K_P2);
+	K_P3.setText("form", "");
+	K_P3.ParamLink(audioProcessor.GetParams(), "p3");
+	addAndMakeVisible(K_P3);
+	K_P4.setText("p4", "param4");
+	K_P4.ParamLink(audioProcessor.GetParams(), "p4");
+	addAndMakeVisible(K_P4);
+	K_P5.setText("p5", "param5");
+	K_P5.ParamLink(audioProcessor.GetParams(), "p5");
+	addAndMakeVisible(K_P5);
+	K_P6.setText("p6", "param6");
+	K_P6.ParamLink(audioProcessor.GetParams(), "p6");
+	addAndMakeVisible(K_P6);
+
 
 	startTimerHz(30);
 
@@ -65,9 +78,12 @@ void LModelAudioProcessorEditor::resized()
 	auto convXY = juce::Rectangle<int>::leftTopRightBottom;
 
 	K_Pitch.setBounds(32 + 64 * 0, 32, 64, 64);
-	K_Low.setBounds(32 + 64 * 1, 32, 64, 64);
-	K_High.setBounds(32 + 64 * 2, 32, 64, 64);
-
+	K_P1.setBounds(32 + 64 * 1, 32, 64, 64);
+	K_P2.setBounds(32 + 64 * 2, 32, 64, 64);
+	K_P3.setBounds(32 + 64 * 3, 32, 64, 64);
+	K_P4.setBounds(32 + 64 * 4, 32, 64, 64);
+	K_P5.setBounds(32 + 64 * 5, 32, 64, 64);
+	K_P6.setBounds(32 + 64 * 6, 32, 64, 64);
 }
 
 void LModelAudioProcessorEditor::timerCallback()

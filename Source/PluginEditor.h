@@ -31,7 +31,12 @@ private:
 	// access the processor object that created it.
 	LModelAudioProcessor& audioProcessor;
 	LMKnob K_Pitch;
-	LMKnob K_Low,K_High;
+	LMKnob K_P1;
+	LMKnob K_P2;
+	LMKnob K_P3;
+	LMKnob K_P4;
+	LMKnob K_P5;
+	LMKnob K_P6;
 
 
 	juce::ComponentBoundsConstrainer constrainer;  // 用于设置宽高比例
