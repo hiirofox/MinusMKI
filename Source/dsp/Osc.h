@@ -22,16 +22,16 @@ namespace MinusMKI
 			syncDst = nullptr;
 		}
 
-		virtual float GetDT() = 0;//获取目前的采样增量
-		virtual bool IsWrapThisSample() = 0;//这个采样是否发生wrap
-		virtual float GetWrapWhere() = 0;//获取目前的采样在哪里wrap
+		virtual float GetDT() const = 0;//获取目前的采样增量
+		virtual bool IsWrapThisSample() const = 0;//这个采样是否发生wrap
+		virtual float GetWrapWhere() const = 0;//获取目前的采样在哪里wrap
 
 		virtual void Step(float dt) = 0;//分开是为了更好处理振荡器内复杂状态
 		virtual float Get() = 0;
 
 	};
 
-	class SawOscillator :public Oscillator
+	class SawOscillator final :public Oscillator
 	{
 	private:
 		Blep blep;
@@ -43,30 +43,30 @@ namespace MinusMKI
 
 		float startPhase = 0;//初始相位 [0,1]
 	public:
-		void SetStartPhase(float phi)
+		inline void SetStartPhase(float phi)
 		{
 			startPhase = phi;
 		}
-		void SetPhase(float phi, float where = 0)
+		inline void SetPhase(float phi, float where = 0)
 		{
 			float newt = phi;
 			blep.Add(newt - t, where);
 			t = newt;
 		}
 
-		bool IsWrapThisSample() override
+		inline bool IsWrapThisSample() const final override
 		{
 			return isWrap;
 		}
-		float GetWrapWhere() override
+		inline float GetWrapWhere() const  final override
 		{
 			return where2;
 		}
-		float GetDT() override
+		inline float GetDT() const final override
 		{
 			return dt;
 		}
-		void Step(float dt1) override
+		inline void Step(float dt1) final override
 		{
 			dt = dt1;
 			if (dt > 1.0)dt = 1.0;
@@ -78,7 +78,7 @@ namespace MinusMKI
 			else if (t < 0.0)WrapPhaseUp();
 		}
 
-		void WrapPhaseDown()//只预备状态，不更新
+		inline void WrapPhaseDown()//只预备状态，不更新
 		{
 			t2 = t;
 			amp2 = -1.0;
@@ -88,7 +88,7 @@ namespace MinusMKI
 			if (where2 > 1.0)where2 = 1.0;
 			isWrap = 1;
 		}
-		void WrapPhaseUp()//只预备状态，不更新
+		inline void WrapPhaseUp()//只预备状态，不更新
 		{
 			t2 = t;
 			where2 = t2 / dt;
@@ -98,12 +98,12 @@ namespace MinusMKI
 			t2 += 1.0;
 			isWrap = 1;
 		}
-		void ApplyWrap()
+		inline void ApplyWrap()
 		{
 			t = t2;
 			blep.Add(amp2, where2);
 		}
-		void DoSync(float dstWhere)
+		inline void DoSync(float dstWhere)
 		{
 			if (isWrap && dstWhere < where2)
 			{
@@ -121,7 +121,7 @@ namespace MinusMKI
 				blep.Add(-amp, t / dt);
 			}
 		}
-		float Get() override
+		float Get() final override
 		{
 			bool isSync = syncDst && syncDst->IsWrapThisSample();
 			float syncTime = isSync ? syncDst->GetWrapWhere() : -1.0f;
@@ -141,7 +141,7 @@ namespace MinusMKI
 		}
 	};
 
-	class WaveformOsc :public Oscillator
+	class WaveformOsc final :public Oscillator
 	{
 	private:
 		SawOscillator saw1, saw2;
@@ -151,48 +151,63 @@ namespace MinusMKI
 
 		float lastv = 0;
 		float lastpwm = 0;
+		float startPhase = 0;
 	public:
 		WaveformOsc()
 		{
 			SetPWM(0.25);
 		}
-		void SetPWM(float duty)
+		inline void SetStartPhase(float sp)
+		{
+			startPhase = sp;
+			float p1 = startPhase;
+			float p2 = startPhase + duty;
+			p1 -= (int)p1;
+			p2 -= (int)p2;
+			saw1.SetStartPhase(p1);
+			saw2.SetStartPhase(p2);
+		}
+		inline void SetPWM(float duty)
 		{
 			duty *= 0.5;
 			this->duty = duty;
-			saw1.SetStartPhase(0);
-			saw2.SetStartPhase(duty);
+			float p1 = startPhase;
+			float p2 = startPhase + duty;
+			p1 -= (int)p1;
+			p2 -= (int)p2;
+			saw1.SetStartPhase(p1);
+			saw2.SetStartPhase(p2);
 		}
-		void SetWaveform(float form)
+		inline void SetWaveform(float form)
 		{
 			this->form = form;
 		}
-		void SyncTo(Oscillator& dst) override
+		void SyncTo(Oscillator& dst) final override
 		{
 			Oscillator::SyncTo(dst);
 			saw1.SyncTo(dst);
 			saw2.SyncTo(dst);
 		}
-		void UnregSync() override
+		void UnregSync() final override
 		{
 			Oscillator::UnregSync();
 			saw1.UnregSync();
 			saw2.UnregSync();
 		}
 
-		bool IsWrapThisSample() override
+		inline bool IsWrapThisSample() const final override
 		{
 			return saw1.IsWrapThisSample();
 		}
-		float GetWrapWhere() override
+		inline float GetWrapWhere() const final override
 		{
 			return saw1.GetWrapWhere();
 		}
-		float GetDT() override
+		inline float GetDT() const final override
 		{
 			return dt;
 		}
-		void Step(float _dt) override
+		inline void Step(float _dt) final override
 		{
 			dt = _dt;
 			if (dt > 1.0)dt = 1.0;
@@ -200,7 +215,7 @@ namespace MinusMKI
 			saw1.Step(dt);
 			saw2.Step(dt);
 		}
-		float Get() override
+		float Get() final override
 		{
 			float v1 = saw1.Get();
 			float v2 = saw2.Get();
@@ -294,6 +309,57 @@ namespace MinusMKI
 				outl[i] = v;
 				outr[i] = v;
 			}
+		}
+		void SetStartPhase(float sp)
+		{
+			osc1.SetStartPhase(sp);
+			osc2.SetStartPhase(sp);
+		}
+	};
+
+	class UnisonTest2
+	{
+	private:
+		constexpr static int UnisonNum = 1;
+		OscTest wav[UnisonNum];
+		float unitvol = 1.0 / sqrtf(UnisonNum);
+	public:
+		UnisonTest2()
+		{
+			for (int i = 0; i < UnisonNum; ++i)
+			{
+				float randphase = (float)rand() / RAND_MAX;
+				wav[i].SetStartPhase(0.46);
+			}
+		}
+		void SetParams(float freq, float sync, float pwm, float form, float fb, float detune, float sr)
+		{
+			for (int i = 0; i < UnisonNum; ++i)
+			{
+				float f = freq * (1.0 + ((float)i / UnisonNum - 0.5) * detune * 0.05);
+				wav[i].SetParams(f, sync, pwm, form, fb, sr);
+			}
+		}
+		void ProcessBlock(float* outl, float* outr, int numSamples)
+		{
+			for (int i = 0; i < numSamples; ++i)
+			{
+				float vl = ProcessSample();
+				float vr = vl;
+
+				outl[i] = vl / 8.0;
+				outr[i] = vr / 8.0;
+			}
+		}
+		inline float ProcessSample()
+		{
+			float sum = 0;
+			for (int i = 0; i < UnisonNum; ++i)
+			{
+				sum += wav[i].ProcessSample();
+			}
+			sum *= unitvol;
+			return sum;
 		}
 	};
 }

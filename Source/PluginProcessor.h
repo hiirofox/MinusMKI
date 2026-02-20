@@ -69,7 +69,7 @@ private:
 	juce::AudioProcessorValueTreeState Params{ *this, nullptr, "Parameters", createParameterLayout() };
 
 	float freq = 1.0;
-	MinusMKI::OscTest osc;
+	MinusMKI::UnisonTest2 osc;
 
 	//==============================================================================
 	JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(LModelAudioProcessor)
