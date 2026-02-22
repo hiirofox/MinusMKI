@@ -523,11 +523,11 @@ namespace MinusMKI
 			dt2 = freq * sync / sr;
 			this->fb = fb;
 			this->duty = pwm;
-			//osc1.SetPWM(duty);
+			osc1.SetPWM(duty);
 			//osc1.SetWaveform(form);
 
 			osc2.SyncTo(osc1);
-			//osc2.SetPWM(duty);
+			osc2.SetPWM(duty);
 			//osc2.SetWaveform(form);
 
 		}
@@ -551,8 +551,8 @@ namespace MinusMKI
 		}
 		void SetStartPhase(float sp)
 		{
-			//osc1.SetStartPhase(sp);
-			//osc2.SetStartPhase(sp);
+			osc1.SetStartPhase(sp);
+			osc2.SetStartPhase(sp);
 		}
 	};
 
