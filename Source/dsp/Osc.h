@@ -11,7 +11,7 @@ namespace MinusMKI
 	private:
 	protected:
 		Oscillator* syncDst = nullptr;
-		using Blep = TableBlep;
+		using Blep = Lagrange4thBlep;
 	public:
 		virtual void SyncTo(Oscillator& dst)
 		{
@@ -366,8 +366,8 @@ namespace MinusMKI
 	{
 	private:
 		ZeroCrossDetector zcd;
-		WaveformOsc osc1;
-		WaveformOsc osc2;
+		SawOscillator osc1;
+		SawOscillator osc2;
 		float dt1 = 0, dt2 = 0;
 		float duty = 0.5;
 		float fb = 0, fbv = 0;
@@ -378,12 +378,12 @@ namespace MinusMKI
 			dt2 = freq * sync / sr;
 			this->fb = fb;
 			this->duty = pwm;
-			osc1.SetPWM(duty);
-			osc1.SetWaveform(form);
+			//osc1.SetPWM(duty);
+			//osc1.SetWaveform(form);
 
 			osc2.SyncTo(osc1);
-			osc2.SetPWM(duty);
-			osc2.SetWaveform(form);
+			//osc2.SetPWM(duty);
+			//osc2.SetWaveform(form);
 
 		}
 		float lastv1 = 0;

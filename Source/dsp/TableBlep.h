@@ -25,6 +25,35 @@ public:
 	float Get();
 };
 
+class IirDcCompensator
+{
+private:
+	float y1 = 0.0f;
+	float y2 = 0.0f;
+
+	float a = 0.995f;//改这个！
+	float b = a * 0.999f;
+public:
+	void Add(float blepDC, float where)
+	{
+		float s1 = std::powf(a, where);
+		float s2 = std::powf(b, where);
+		float ds = (s1 / (1.0f - a)) - (s2 / (1.0f - b));
+		float dcfix = blepDC / ds;
+		y1 += dcfix * s1;
+		y2 -= dcfix * s2;
+	}
+	void Step()
+	{
+		y1 *= a;
+		y2 *= b;
+	}
+	float Get()
+	{
+		return y1 + y2;
+	}
+};
+
 class Lagrange4thBlep
 {
 private:
@@ -43,6 +72,7 @@ private:
 		return 0.0833333f * poly * 0.5;
 	}
 
+	IirDcCompensator dcc;
 public:
 	void Add(float amp, float where, int stage = 1)
 	{
@@ -57,12 +87,17 @@ public:
 		p2 = p2 - 0.0;
 		p3 = p3 - 1.0;
 		p4 = p4 - 1.0;
-
+		p1 *= amp;
+		p2 *= amp;
+		p3 *= amp;
+		p4 *= amp;
 		//叠加残差
-		z1 += p1 * amp;
-		z2 += p2 * amp;
-		z3 += p3 * amp;
-		z4 += p4 * amp;
+		z1 += p1;
+		z2 += p2;
+		z3 += p3;
+		z4 += p4;
+
+		dcc.Add(p1 + p2 + p3 + p4, where);
 	}
 	void Step()
 	{
@@ -71,9 +106,11 @@ public:
 		z2 = z3;
 		z3 = z4;
 		z4 = 0;
+		dcc.Step();
 	}
 	float Get()
 	{
-		return v;
+		//return v;
+		return v - dcc.Get();
 	}
 };
