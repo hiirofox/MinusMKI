@@ -146,32 +146,27 @@ namespace MinusMKI
 		Blep blep;
 		float t = 0;
 		float dt = 0;
+		float t_step_start = 0; // 【关键新增】安全记录当前步进前的原始相位
 
-		// 周期边界 Wrap 状态 (底部峰值, 相位 0 或 1)
 		int isWrap = 0;
 		float t2 = 0, where2 = 0;
 
-		// 内部占空比跨越状态 (顶部峰值, 相位 = duty)
 		int isDutyCross = 0;
 		float dutyWhere = 0;
 
-		float startPhase = 0; // 初始相位 [0,1]
-
-		// PWM 相关参数
+		float startPhase = 0;
 		float duty = 0.5f;
-		float slope_diff = 8.0f; // 预计算的斜率变化绝对值
+		float slope_diff = 8.0f;
 
-		// 辅助内联函数：获取理想无带限的波形值 [-1, 1]
 		inline float GetNaiveValue(float p) const
 		{
-			p -= std::floor(p); // 确保在 [0, 1) 内
+			p -= std::floor(p);
 			if (p < duty)
-				return -1.0f + 2.0f * p / duty; // 上升段
+				return -1.0f + 2.0f * p / duty;
 			else
-				return 1.0f - 2.0f * (p - duty) / (1.0f - duty); // 下降段
+				return 1.0f - 2.0f * (p - duty) / (1.0f - duty);
 		}
 
-		// 辅助内联函数：获取当前的理论斜率 (每相位单位)
 		inline float GetNaiveSlope(float p) const
 		{
 			p -= std::floor(p);
@@ -182,20 +177,14 @@ namespace MinusMKI
 	public:
 		TriOscillator()
 		{
-			SetPWM(0.5f); // 默认完美对称三角波
+			SetPWM(0.5f);
 		}
 
-		// 新增：设置 PWM (占空比)
 		inline void SetPWM(float d)
 		{
-			// 限制在安全范围内，防止斜率为无穷大导致除零崩溃
 			if (d < 0.001f) d = 0.001f;
 			if (d > 0.999f) d = 0.999f;
 			duty = d;
-
-			// 预计算斜率跳变的绝对差值
-			// 上升斜率 = 2/duty, 下降斜率 = -2/(1-duty)
-			// 差值 = (2/duty) - (-2/(1-duty)) = 2 / (duty * (1 - duty))
 			slope_diff = 2.0f / (duty * (1.0f - duty));
 		}
 
@@ -207,12 +196,12 @@ namespace MinusMKI
 		inline void SetPhase(float phi, float where = 0)
 		{
 			float newt = phi;
-			// 强行跳相，需要同时修补幅度 (BLEP) 和 斜率 (BLAMP)
 			float val_diff = GetNaiveValue(newt) - GetNaiveValue(t);
-			float slope_d = GetNaiveSlope(newt) - GetNaiveSlope(t);
+			// 注意这里要乘以 dt 获取真实的时间斜率差
+			float slope_d = (GetNaiveSlope(newt) - GetNaiveSlope(t)) * dt;
 
 			if (std::abs(val_diff) > 1e-6f) blep.Add(val_diff, where, 1);
-			if (std::abs(slope_d) > 1e-6f) blep.Add(slope_d * dt, where, 2);
+			if (std::abs(slope_d) > 1e-6f) blep.Add(slope_d, where, 2);
 
 			t = newt;
 		}
@@ -227,7 +216,7 @@ namespace MinusMKI
 			if (dt > 1.0f) dt = 1.0f;
 			if (dt < -1.0f) dt = -1.0f;
 
-			float t_old = t;
+			t_step_start = t; // 备份安全的起始点
 			t += dt;
 
 			isWrap = 0;
@@ -235,108 +224,115 @@ namespace MinusMKI
 
 			if (dt > 0.0f)
 			{
-				if (t >= 1.0f) WrapPhaseDown();
-				// 检测是否跨越了顶部峰值 (duty)
-				if (t_old < duty && t >= duty)
-				{
+				// 1. 独立检测是否 Wrap
+				if (t >= 1.0f) {
+					isWrap = 1;
+					t2 = t - 1.0f;
+					where2 = t2 / dt;
+				}
+				// 2. 独立检测是否跨过 Duty (注意这里完全解耦，哪怕同帧发生 Wrap 也能测出)
+				if (t_step_start < duty && t >= duty) {
 					isDutyCross = 1;
 					dutyWhere = (t - duty) / dt;
+				}
+				else if (t_step_start < 1.0f + duty && t >= 1.0f + duty) {
+					isDutyCross = 1;
+					dutyWhere = (t - (1.0f + duty)) / dt;
 				}
 			}
 			else if (dt < 0.0f)
 			{
-				if (t < 0.0f) WrapPhaseUp();
-				// 反向检测跨越顶部峰值
-				if (t_old > duty && t <= duty)
-				{
+				if (t < 0.0f) {
+					isWrap = 1;
+					t2 = t + 1.0f;
+					where2 = t / dt; // 【修复】负向 Wrap 的 where 精确计算
+				}
+				if (t_step_start > duty && t <= duty) {
 					isDutyCross = 1;
 					dutyWhere = (t - duty) / dt;
 				}
+				else if (t_step_start > duty - 1.0f && t <= duty - 1.0f) {
+					isDutyCross = 1;
+					dutyWhere = (t - (duty - 1.0f)) / dt;
+				}
 			}
-		}
-
-		inline void WrapPhaseDown()
-		{
-			t2 = t - 1.0f;
-			where2 = t2 / dt;
-			if (where2 < 0.0f) where2 = 0.0f;
-			if (where2 > 1.0f) where2 = 1.0f;
-			isWrap = 1;
-		}
-
-		inline void WrapPhaseUp()
-		{
-			t2 = t + 1.0f;
-			where2 = t2 / dt;
-			if (where2 < 0.0f) where2 = 0.0f;
-			if (where2 > 1.0f) where2 = 1.0f;
-			isWrap = 1;
 		}
 
 		inline void ApplyWrap()
 		{
 			t = t2;
-			// 底部峰值折角：斜率从下降突变为上升
-			// 必须使用 Stage 2 (BLAMP)，且缩放必须乘以 dt！
-			blep.Add(slope_diff * dt, where2, 2);
+			// 【修复】无论正放倒放，底部峰值斜率永远是往上增加的！必须取 abs(dt)
+			blep.Add(slope_diff * std::abs(dt), where2, 2);
 		}
 
 		inline void ApplyDutyCross()
 		{
 			if (dutyWhere < 0.0f) dutyWhere = 0.0f;
 			if (dutyWhere > 1.0f) dutyWhere = 1.0f;
-			// 顶部峰值折角：斜率从上升突变为下降 (所以是负号)
-			blep.Add(-slope_diff * dt, dutyWhere, 2);
+			// 【修复】无论正放倒放，顶部峰值斜率永远是往下锐减的！必须取 -abs(dt)
+			blep.Add(-slope_diff * std::abs(dt), dutyWhere, 2);
 		}
 
 		inline void DoSync(float dstWhere)
 		{
-			// 1. 如果自己原本的峰值发生在被硬同步之前，先处理自己的
-			if (isWrap && dstWhere < where2) {
+			// 1. 若自己原有的事件发生在 Sync 之前 (where 值越大代表时间越早)，必须先处理！
+			if (isWrap && where2 > dstWhere) {
 				ApplyWrap();
 				isWrap = 0;
 			}
-			if (isDutyCross && dstWhere < dutyWhere) {
+			if (isDutyCross && dutyWhere > dstWhere) {
 				ApplyDutyCross();
 				isDutyCross = 0;
 			}
 
-			// 2. 精确计算同步前后的相位
-			float phase_before = (t - dt) + dt * (1.0f - dstWhere);
+			// 2. 计算 Sync 跳变前后的精确状态
+			float phase_before = t_step_start + dt * (1.0f - dstWhere);
 			float phase_after = startPhase;
 
-			// 3. 极其关键！硬同步会导致波形被“生硬切断”
-			// 这意味着既有幅度的突变 (BLEP)，也有斜率的突变 (BLAMP)！
+			// 3. 执行 Sync 跳变双层修补 (幅度 BLEP + 斜率 BLAMP)
 			float val_before = GetNaiveValue(phase_before);
 			float val_after = GetNaiveValue(phase_after);
-			blep.Add(val_after - val_before, dstWhere, 1); // Stage 1: BLEP
+			blep.Add(val_after - val_before, dstWhere, 1);
 
-			float slope_before = GetNaiveSlope(phase_before);
-			float slope_after = GetNaiveSlope(phase_after);
-			blep.Add((slope_after - slope_before) * dt, dstWhere, 2); // Stage 2: BLAMP
+			// 这里不用 abs，因为随机跳变产生的斜率差由波形两点真实斜率差决定
+			float slope_before = GetNaiveSlope(phase_before) * dt;
+			float slope_after = GetNaiveSlope(phase_after) * dt;
+			blep.Add(slope_after - slope_before, dstWhere, 2);
 
-			// 4. 计算被同步后，剩余时间跑完的最终相位
-			t = phase_after + dstWhere * dt;
+			// 4. 计算 Sync 后剩余时间的相位
+			float p_start = phase_after;
+			float p_end = phase_after + dstWhere * dt;
+			t = p_end;
 
-			// 5. 检测在同步之后的剩余时间里，是否又跨越了峰值
+			// 5. 【修复】极其严谨地独立判定 Sync 后的余波是否触发新的折角！
 			if (dt > 0.0f) {
-				if (t >= 1.0f) {
+				if (p_end >= 1.0f) {
 					t -= 1.0f;
-					blep.Add(slope_diff * dt, (t - 0.0f) / dt, 2);
+					blep.Add(slope_diff * std::abs(dt), (p_end - 1.0f) / dt, 2);
 				}
-				else if (phase_after < duty && t >= duty) {
-					blep.Add(-slope_diff * dt, (t - duty) / dt, 2);
+				if (p_start < duty && p_end >= duty) {
+					blep.Add(-slope_diff * std::abs(dt), (p_end - duty) / dt, 2);
+				}
+				else if (p_start < 1.0f + duty && p_end >= 1.0f + duty) {
+					blep.Add(-slope_diff * std::abs(dt), (p_end - (1.0f + duty)) / dt, 2);
 				}
 			}
 			else if (dt < 0.0f) {
-				if (t < 0.0f) {
+				if (p_end < 0.0f) {
 					t += 1.0f;
-					blep.Add(slope_diff * dt, (t - 1.0f) / dt, 2);
+					blep.Add(slope_diff * std::abs(dt), (p_end - 0.0f) / dt, 2);
 				}
-				else if (phase_after > duty && t <= duty) {
-					blep.Add(-slope_diff * dt, (t - duty) / dt, 2);
+				if (p_start > duty && p_end <= duty) {
+					blep.Add(-slope_diff * std::abs(dt), (p_end - duty) / dt, 2);
+				}
+				else if (p_start > duty - 1.0f && p_end <= duty - 1.0f) {
+					blep.Add(-slope_diff * std::abs(dt), (p_end - (duty - 1.0f)) / dt, 2);
 				}
 			}
+
+			// 同步发生后，之前判定但在同步后发生的所有自身事件作废
+			isWrap = 0;
+			isDutyCross = 0;
 		}
 
 		float Get() final override
@@ -350,15 +346,12 @@ namespace MinusMKI
 			}
 			else
 			{
-				// 如果没有同步打断，常规应用 Wrap 和 顶部峰值的 BLAMP
+				// 【修复】不再互斥，如果同帧内发生双峰跨越，按序打入缓冲！
 				if (isWrap) ApplyWrap();
 				if (isDutyCross) ApplyDutyCross();
 			}
 
 			blep.Step();
-
-			// 因为 GetNaiveValue 直接输出理想的 [-1, 1] 波形
-			// 所以直接加上 BLAMP/BLEP 的残差即可
 			return GetNaiveValue(t) + blep.Get();
 		}
 	};
