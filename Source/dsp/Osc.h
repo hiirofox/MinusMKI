@@ -141,6 +141,145 @@ namespace MinusMKI
 		}
 	};
 
+	class WaveformOsc final :public Oscillator
+	{
+	private:
+		SawOscillator saw1, saw2;
+		float duty = 0.25, dt = 0.0;
+		float tri = 0;
+		float form = 0;//imp(0)->pwm(1)->tri(2)
+
+		float lastv = 0;
+		float lastpwm = 0;
+		float startPhase = 0;
+	public:
+		WaveformOsc()
+		{
+			SetPWM(0.25);
+		}
+		inline void SetStartPhase(float sp)
+		{
+			startPhase = sp;
+			float p1 = startPhase;
+			float p2 = startPhase + duty;
+			p1 -= (int)p1;
+			p2 -= (int)p2;
+			saw1.SetStartPhase(p1);
+			saw2.SetStartPhase(p2);
+		}
+		inline void SetPWM(float duty)
+		{
+			duty *= 0.5;
+			this->duty = duty;
+			float p1 = startPhase;
+			float p2 = startPhase + duty;
+			p1 -= (int)p1;
+			p2 -= (int)p2;
+			saw1.SetStartPhase(p1);
+			saw2.SetStartPhase(p2);
+		}
+		inline void SetWaveform(float form)
+		{
+			this->form = form;
+		}
+		void SyncTo(Oscillator& dst) final override
+		{
+			Oscillator::SyncTo(dst);
+			saw1.SyncTo(dst);
+			saw2.SyncTo(dst);
+		}
+		void UnregSync() final override
+		{
+			Oscillator::UnregSync();
+			saw1.UnregSync();
+			saw2.UnregSync();
+		}
+
+		inline bool IsWrapThisSample() const final override
+		{
+			return saw1.IsWrapThisSample();
+		}
+		inline float GetWrapWhere() const final override
+		{
+			return saw1.GetWrapWhere();
+		}
+		inline float GetDT() const final override
+		{
+			return dt;
+		}
+		inline void Step(float _dt) final override
+		{
+			dt = _dt;
+			if (dt > 1.0)dt = 1.0;
+			if (dt < -1.0)dt = -1.0;
+			saw1.Step(dt);
+			saw2.Step(dt);
+		}
+		inline float GetPwmIntegral(float p, float d) const {
+			p -= (int)p;
+			if (p < 0.0f) p += 1.0f;
+			if (p <= 1.0f - d) {
+				return -2.0f * d * p;
+			}
+			else {
+				return 2.0f * (1.0f - d) * (p - 1.0f);
+			}
+		}
+		float Get() final override
+		{
+			float v1 = saw1.Get();
+			float v2 = saw2.Get();
+			float pwm = v1 - v2;
+
+			float pwmdc = 0;
+			if (syncDst)
+			{
+				float syncdt = syncDst->GetDT();
+				float k = dt / syncdt;
+				float phaseStart = startPhase;
+				float phaseEnd = startPhase + k;
+				float intStart = GetPwmIntegral(phaseStart, duty);
+				float intEnd = GetPwmIntegral(phaseEnd, duty);
+				pwmdc = (intEnd - intStart) / k;
+			}
+			pwm -= pwmdc; // 减去计算出的 DC，得到纯正的无交流偏移波形
+
+			float dutyfix = duty + 0.001;
+			float trifix = dt / (dutyfix * (1.0f - dutyfix));
+			tri = pwm * trifix + tri * 0.999;
+
+			float fixmix = duty * 50;
+			if (fixmix <= 1.0)
+			{
+				tri = -v1 * (1.0f - fixmix) + tri * fixmix;
+			}
+
+			if (fixmix <= 1.0)
+			{
+				float imp2 = v1 - lastv;
+				pwm = -imp2 * (1.0f - fixmix) + pwm * fixmix;
+			}
+			lastv = v1;
+
+			float imp = pwm - lastpwm;
+			lastpwm = pwm;
+
+			float mix1 = 0, mix2 = 0, mix3 = 0;
+			if (form <= 1.0f)
+			{
+				mix1 = 1.0f - form;
+				mix2 = form;
+			}
+			else
+			{
+				mix2 = 2.0f - form;
+				mix3 = form - 1.0f;
+			}
+
+			float out = imp * mix1 + pwm * mix2 + tri * mix3;
+			return out;
+		}
+	};
 	class TriOscillator final : public Oscillator
 	{
 	private:
@@ -384,151 +523,6 @@ namespace MinusMKI
 		}
 	};
 
-	class WaveformOsc final :public Oscillator
-	{
-	private:
-		SawOscillator saw1, saw2;
-		float duty = 0.25, dt = 0.0;
-		float tri = 0;
-		float form = 0;//imp(0)->pwm(1)->tri(2)
-
-		float lastv = 0;
-		float lastpwm = 0;
-		float startPhase = 0;
-	public:
-		WaveformOsc()
-		{
-			UnregSync();
-			SetPWM(0.25);
-		}
-		inline void SetStartPhase(float sp)
-		{
-			startPhase = sp;
-			float p1 = startPhase;
-			float p2 = startPhase + duty;
-			p1 -= (int)p1;
-			p2 -= (int)p2;
-			saw1.SetStartPhase(p1);
-			saw2.SetStartPhase(p2);
-		}
-		inline void SetPWM(float duty)
-		{
-			duty *= 0.5;
-			this->duty = duty;
-			float p1 = startPhase;
-			float p2 = startPhase + duty;
-			p1 -= (int)p1;
-			p2 -= (int)p2;
-			saw1.SetStartPhase(p1);
-			saw2.SetStartPhase(p2);
-		}
-		inline void SetWaveform(float form)
-		{
-			this->form = form;
-		}
-		void SyncTo(Oscillator& dst) final override
-		{
-			Oscillator::SyncTo(dst);
-			saw1.SyncTo(dst);
-			saw2.SyncTo(dst);
-		}
-		void UnregSync() final override
-		{
-			/*
-			Oscillator::UnregSync();
-			saw1.UnregSync();
-			saw2.UnregSync();
-			*/
-			SyncTo(*this);//你别管他，去掉就跑不了了
-		}
-
-		inline bool IsWrapThisSample() const final override
-		{
-			return saw1.IsWrapThisSample();
-		}
-		inline float GetWrapWhere() const final override
-		{
-			return saw1.GetWrapWhere();
-		}
-		inline float GetDT() const final override
-		{
-			return dt;
-		}
-		inline void Step(float _dt) final override
-		{
-			dt = _dt;
-			if (dt > 1.0)dt = 1.0;
-			if (dt < -1.0)dt = -1.0;
-			saw1.Step(dt);
-			saw2.Step(dt);
-		}
-		inline float GetPwmIntegral(float p, float d) const {
-			p -= (int)p;
-			if (p < 0.0f) p += 1.0f;
-			if (p <= 1.0f - d) {
-				return -2.0f * d * p;
-			}
-			else {
-				return 2.0f * (1.0f - d) * (p - 1.0f);
-			}
-		}
-		float Get() final override
-		{
-			float v1 = saw1.Get();
-			float v2 = saw2.Get();
-			float pwm = v1 - v2;
-			//return pwm;//test
-
-			float pwmdc = 0;
-			if (syncDst)
-			{
-				float syncdt = syncDst->GetDT();
-				float k = dt / syncdt;
-				float phaseStart = startPhase;
-				float phaseEnd = startPhase + k;
-				float intStart = GetPwmIntegral(phaseStart, duty);
-				float intEnd = GetPwmIntegral(phaseEnd, duty);
-				pwmdc = (intEnd - intStart) / k;
-			}
-			pwm -= pwmdc; // 减去计算出的 DC，得到纯正的无交流偏移波形
-
-			float dutyfix = duty + 0.001;
-			float trifix = dt / (dutyfix * (1.0f - dutyfix));
-			tri = pwm * trifix + tri * 0.999;
-
-			float fixmix = duty * 50;
-			if (fixmix <= 1.0)
-			{
-				tri = -v1 * (1.0f - fixmix) + tri * fixmix;
-			}
-
-			if (fixmix <= 1.0)
-			{
-				float imp2 = v1 - lastv;
-				pwm = -imp2 * (1.0f - fixmix) + pwm * fixmix;
-			}
-			lastv = v1;
-
-			float imp = pwm - lastpwm;
-			lastpwm = pwm;
-
-			float mix1 = 0, mix2 = 0, mix3 = 0;
-			if (form <= 1.0f)
-			{
-				mix1 = 1.0f - form;
-				mix2 = form;
-			}
-			else
-			{
-				mix2 = 2.0f - form;
-				mix3 = form - 1.0f;
-			}
-
-			float out = imp * mix1 + pwm * mix2 + tri * mix3;
-			return out;
-		}
-	};
-
 	class WaveformOsc2 final : public Oscillator
 	{
 	private:
@@ -633,6 +627,7 @@ namespace MinusMKI
 			return imp * mix1 + pwm * mix2 + tri * mix3;
 		}
 	};
+
 	class OscTest
 	{
 	private:
@@ -683,7 +678,7 @@ namespace MinusMKI
 	class UnisonTest2
 	{
 	private:
-		constexpr static int UnisonNum = 1;
+		constexpr static int UnisonNum = 200;
 		OscTest wav[UnisonNum];
 		float unitvol = 1.0 / sqrtf(UnisonNum);
 	public:
@@ -692,7 +687,7 @@ namespace MinusMKI
 			for (int i = 0; i < UnisonNum; ++i)
 			{
 				float randphase = (float)rand() / RAND_MAX;
-				wav[i].SetStartPhase(0);
+				wav[i].SetStartPhase(randphase);
 			}
 		}
 		void SetParams(float freq, float sync, float pwm, float form, float fb, float detune, float sr)
