@@ -221,7 +221,7 @@ namespace TableBlepCoeffs
 			blepintv += mpblep[i];
 			mpblamp[i] = blepintv * dtv;
 		}
-		ApplyDCCompensation(mpblamp, len);
+		//ApplyDCCompensation(mpblamp, len);//Ç§Íò±ðÒª
 
 		for (int i = 0; i < numTables + 1; ++i)
 		{

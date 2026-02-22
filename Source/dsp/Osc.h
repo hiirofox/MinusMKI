@@ -140,6 +140,7 @@ namespace MinusMKI
 			return v * 2.0 - 1.0;
 		}
 	};
+
 	class TriOscillator final : public Oscillator
 	{
 	private:
@@ -158,13 +159,11 @@ namespace MinusMKI
 		float duty = 0.5f;
 		float slope_diff = 8.0f;
 
-		// 【新增】波形模式标记：0=三角波, -1=纯下降锯齿波(duty=0), 1=纯上升锯齿波(duty=1)
 		int saw_mode = 0;
 
 		inline float GetNaiveValue(float p) const
 		{
 			p -= std::floor(p);
-			// 【新增】纯锯齿波模式下，直接返回无折角的原生锯齿波线段
 			if (saw_mode == -1) return 1.0f - 2.0f * p; // 下降锯齿
 			if (saw_mode == 1) return -1.0f + 2.0f * p; // 上升锯齿
 
@@ -176,7 +175,6 @@ namespace MinusMKI
 
 		inline float GetNaiveSlope(float p) const
 		{
-			// 【新增】纯锯齿波的斜率是恒定的
 			if (saw_mode == -1) return -2.0f;
 			if (saw_mode == 1) return 2.0f;
 
@@ -190,11 +188,8 @@ namespace MinusMKI
 		{
 			SetPWM(0.5f);
 		}
-
-		// 【核心修改】PWM 极限检测与模式切换
 		inline void SetPWM(float d)
 		{
-			// 设定一个极小的阈值(如 0.0001)，当推到极限时，强行降维为纯锯齿波
 			if (d <= 0.00001f) {
 				duty = 0.0f;
 				saw_mode = -1; // 纯下降锯齿
@@ -221,9 +216,8 @@ namespace MinusMKI
 			float val_diff = GetNaiveValue(newt) - GetNaiveValue(t);
 			float slope_d = (GetNaiveSlope(newt) - GetNaiveSlope(t)) * dt;
 
-			if (std::abs(val_diff) > 1e-6f) blep.Add(val_diff, where, 1);
-			// 在纯锯齿模式下，由于斜率恒定不变，这里的 slope_d 天然为 0，不会误触发 BLAMP
-			if (std::abs(slope_d) > 1e-6f) blep.Add(slope_d, where, 2);
+			if (fabsf(val_diff) > 1e-6f) blep.Add(val_diff, where, 1);
+			if (fabsf(slope_d) > 1e-6f) blep.Add(slope_d, where, 2);
 
 			t = newt;
 		}
@@ -251,7 +245,6 @@ namespace MinusMKI
 					t2 = t - 1.0f;
 					where2 = t2 / dt;
 				}
-				// 【新增】如果退化为锯齿波，周期内部不再存在折角，直接跳过检测
 				if (saw_mode == 0) {
 					if (t_step_start < duty && t >= duty) {
 						isDutyCross = 1;
@@ -286,17 +279,13 @@ namespace MinusMKI
 		inline void ApplyWrap()
 		{
 			t = t2;
-			// 【核心修改】边界突变时，根据不同模式注入不同维度的残差
 			if (saw_mode == 0) {
-				// 三角波：底部折角，注入斜率差 (Stage 2 BLAMP)
-				blep.Add(slope_diff * std::abs(dt), where2, 2);
+				blep.Add(slope_diff * fabsf(dt), where2, 2);
 			}
 			else if (saw_mode == 1) {
-				// 纯上升锯齿波：波形从 1 瞬间跌到 -1，注入幅度差 (Stage 1 BLEP)
 				blep.Add(-2.0f, where2, 1);
 			}
 			else if (saw_mode == -1) {
-				// 纯下降锯齿波：波形从 -1 瞬间跳到 1，注入幅度差 (Stage 1 BLEP)
 				blep.Add(2.0f, where2, 1);
 			}
 		}
@@ -305,7 +294,7 @@ namespace MinusMKI
 		{
 			if (dutyWhere < 0.0f) dutyWhere = 0.0f;
 			if (dutyWhere > 1.0f) dutyWhere = 1.0f;
-			blep.Add(-slope_diff * std::abs(dt), dutyWhere, 2);
+			blep.Add(-slope_diff * fabsf(dt), dutyWhere, 2);
 		}
 
 		inline void DoSync(float dstWhere)
@@ -324,12 +313,13 @@ namespace MinusMKI
 
 			float val_before = GetNaiveValue(phase_before);
 			float val_after = GetNaiveValue(phase_after);
-			blep.Add(val_after - val_before, dstWhere, 1);
+			if (fabsf(val_after - val_before) > 1e-6f) {
+				blep.Add(val_after - val_before, dstWhere, 1);
+			}
 
 			float slope_before = GetNaiveSlope(phase_before) * dt;
 			float slope_after = GetNaiveSlope(phase_after) * dt;
-			// 锯齿模式下 slope_after == slope_before，差值为 0，天然免疫 BLAMP 干扰
-			if (std::abs(slope_after - slope_before) > 1e-6f) {
+			if (fabsf(slope_after - slope_before) > 1e-6f) {
 				blep.Add(slope_after - slope_before, dstWhere, 2);
 			}
 
@@ -337,36 +327,35 @@ namespace MinusMKI
 			float p_end = phase_after + dstWhere * dt;
 			t = p_end;
 
-			// 【核心修改】处理硬同步后的残余跳变
 			if (dt > 0.0f) {
 				if (p_end >= 1.0f) {
 					t -= 1.0f;
-					if (saw_mode == 0) blep.Add(slope_diff * std::abs(dt), (p_end - 1.0f) / dt, 2);
+					if (saw_mode == 0) blep.Add(slope_diff * fabsf(dt), (p_end - 1.0f) / dt, 2);
 					else if (saw_mode == 1) blep.Add(-2.0f, (p_end - 1.0f) / dt, 1);
 					else if (saw_mode == -1) blep.Add(2.0f, (p_end - 1.0f) / dt, 1);
 				}
 				if (saw_mode == 0) {
 					if (p_start < duty && p_end >= duty) {
-						blep.Add(-slope_diff * std::abs(dt), (p_end - duty) / dt, 2);
+						blep.Add(-slope_diff * fabsf(dt), (p_end - duty) / dt, 2);
 					}
 					else if (p_start < 1.0f + duty && p_end >= 1.0f + duty) {
-						blep.Add(-slope_diff * std::abs(dt), (p_end - (1.0f + duty)) / dt, 2);
+						blep.Add(-slope_diff * fabsf(dt), (p_end - (1.0f + duty)) / dt, 2);
 					}
 				}
 			}
 			else if (dt < 0.0f) {
 				if (p_end < 0.0f) {
 					t += 1.0f;
-					if (saw_mode == 0) blep.Add(slope_diff * std::abs(dt), (p_end - 0.0f) / dt, 2);
+					if (saw_mode == 0) blep.Add(slope_diff * fabsf(dt), (p_end - 0.0f) / dt, 2);
 					else if (saw_mode == 1) blep.Add(-2.0f, (p_end - 0.0f) / dt, 1);
 					else if (saw_mode == -1) blep.Add(2.0f, (p_end - 0.0f) / dt, 1);
 				}
 				if (saw_mode == 0) {
 					if (p_start > duty && p_end <= duty) {
-						blep.Add(-slope_diff * std::abs(dt), (p_end - duty) / dt, 2);
+						blep.Add(-slope_diff * fabsf(dt), (p_end - duty) / dt, 2);
 					}
 					else if (p_start > duty - 1.0f && p_end <= duty - 1.0f) {
-						blep.Add(-slope_diff * std::abs(dt), (p_end - (duty - 1.0f)) / dt, 2);
+						blep.Add(-slope_diff * fabsf(dt), (p_end - (duty - 1.0f)) / dt, 2);
 					}
 				}
 			}
@@ -505,7 +494,7 @@ namespace MinusMKI
 
 			float dutyfix = duty + 0.001;
 			float trifix = dt / (dutyfix * (1.0f - dutyfix));
-			tri = pwm * trifix + tri * 0.995;
+			tri = pwm * trifix + tri * 0.999;
 
 			float fixmix = duty * 50;
 			if (fixmix <= 1.0)
@@ -540,11 +529,115 @@ namespace MinusMKI
 		}
 	};
 
+	class WaveformOsc2 final : public Oscillator
+	{
+	private:
+		// 核心引擎：一个完美的带限三角波发生器
+		TriOscillator triOsc;
+
+		float duty = 0.25f;
+		float dt = 0.0f;
+		float form = 0.0f; // imp(0) -> pwm(1) -> tri(2)
+
+		// 求导专用的状态寄存器
+		float last_tri = 0.0f;
+		float last_pwm = 0.0f;
+
+	public:
+		WaveformOsc2()
+		{
+			UnregSync();
+			SetPWM(0.25f);
+		}
+
+		inline void SetStartPhase(float sp)
+		{
+			// 直接透传给底层 TriOscillator
+			triOsc.SetStartPhase(sp);
+		}
+
+		inline void SetPWM(float d)
+		{
+			// 保持你原有的映射习惯，并钳位防止除零
+			d *= 0.5f;
+
+			this->duty = d;
+			triOsc.SetPWM(this->duty);
+		}
+
+		inline void SetWaveform(float form)
+		{
+			this->form = form;
+		}
+
+		void SyncTo(Oscillator& dst) final override
+		{
+			Oscillator::SyncTo(dst);
+			triOsc.SyncTo(dst);
+		}
+
+		void UnregSync() final override
+		{
+			Oscillator::UnregSync();
+			triOsc.UnregSync();
+		}
+
+		inline bool IsWrapThisSample() const final override
+		{
+			return triOsc.IsWrapThisSample();
+		}
+
+		inline float GetWrapWhere() const final override
+		{
+			return triOsc.GetWrapWhere();
+		}
+
+		inline float GetDT() const final override
+		{
+			return dt;
+		}
+
+		inline void Step(float _dt) final override
+		{
+			dt = _dt;
+			if (dt > 1.0f) dt = 1.0f;
+			if (dt < -1.0f) dt = -1.0f;
+			triOsc.Step(dt);
+		}
+
+		float Get() final override
+		{
+			float tri = triOsc.Get();
+			float diff = tri - last_tri;
+			last_tri = tri;
+			float pwm = 0.0f;
+			if (dt != 0.0f) {
+				float pwmdutyfix = 1.0;
+				if (duty / dt >= 1.0) pwmdutyfix = duty * (1.0f - duty);
+				else pwmdutyfix = dt * (1.0 - dt);
+				pwm = (diff / dt) * pwmdutyfix;
+			}
+			float imp = pwm - last_pwm;
+			last_pwm = pwm;
+			float mix1 = 0, mix2 = 0, mix3 = 0;
+			if (form <= 1.0f)
+			{
+				mix1 = 1.0f - form;
+				mix2 = form;
+			}
+			else
+			{
+				mix2 = 2.0f - form;
+				mix3 = form - 1.0f;
+			}
+			return imp * mix1 + pwm * mix2 + tri * mix3;
+		}
+	};
 	class OscTest
 	{
 	private:
-		TriOscillator osc1;
-		TriOscillator osc2;
+		WaveformOsc osc1;
+		WaveformOsc osc2;
 		float dt1 = 0, dt2 = 0;
 		float duty = 0.5;
 		float fb = 0, fbv = 0;
@@ -556,12 +649,11 @@ namespace MinusMKI
 			this->fb = fb;
 			this->duty = pwm;
 			osc1.SetPWM(duty);
-			//osc1.SetWaveform(form);
+			osc1.SetWaveform(form);
 
 			osc2.SyncTo(osc1);
 			osc2.SetPWM(duty);
-			//osc2.SetWaveform(form);
-
+			osc2.SetWaveform(form);
 		}
 		float ProcessSample()
 		{
@@ -600,7 +692,7 @@ namespace MinusMKI
 			for (int i = 0; i < UnisonNum; ++i)
 			{
 				float randphase = (float)rand() / RAND_MAX;
-				wav[i].SetStartPhase(randphase);
+				wav[i].SetStartPhase(0);
 			}
 		}
 		void SetParams(float freq, float sync, float pwm, float form, float fb, float detune, float sr)
