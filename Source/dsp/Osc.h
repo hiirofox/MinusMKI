@@ -155,6 +155,7 @@ namespace MinusMKI
 	public:
 		WaveformOsc()
 		{
+			UnregSync();
 			SetPWM(0.25);
 		}
 		inline void SetStartPhase(float sp)
@@ -190,9 +191,12 @@ namespace MinusMKI
 		}
 		void UnregSync() final override
 		{
+			/*
 			Oscillator::UnregSync();
 			saw1.UnregSync();
 			saw2.UnregSync();
+			*/
+			SyncTo(*this);//你别管他，去掉就跑不了了
 		}
 
 		inline bool IsWrapThisSample() const final override
@@ -230,7 +234,8 @@ namespace MinusMKI
 			float v1 = saw1.Get();
 			float v2 = saw2.Get();
 			float pwm = v1 - v2;
-
+			//return pwm;//test
+			
 			float pwmdc = 0;
 			if (syncDst)
 			{
@@ -281,9 +286,86 @@ namespace MinusMKI
 		}
 	};
 
+	class ZeroCrossDetector final :public Oscillator
+	{
+	private:
+		float z0 = 0;
+		float z1 = 0;
+		float z2 = 0;
+		float z3 = 0;
+		int isWrap = 0;
+		float where = 0;
+
+		float dt = 0.0000001;
+		float cycleLen = 0;
+	public:
+		void SyncTo(Oscillator& dst) final override
+		{
+		}
+		void UnregSync() final override
+		{
+		}
+
+		inline bool IsWrapThisSample() const final override
+		{
+			if (syncDst) return syncDst->IsWrapThisSample();
+			return isWrap;
+		}
+		inline float GetWrapWhere() const final override
+		{
+			if (syncDst) return syncDst->GetWrapWhere();
+			return where;
+		}
+		inline float GetDT() const final override
+		{
+			if (syncDst) return syncDst->GetDT();
+			return dt;
+		}
+
+		inline float hornor_fdivdf(float x, float c0, float c1, float c2, float c3)
+		{
+			float fx = c0 + x * (c1 + x * (c2 + x * c3));
+			float dfx = c1 + x * (2.0f * c2 + x * 3.0f * c3);
+			return fx / dfx;
+		}
+		inline void Step(float x) final override
+		{
+			z3 = z2;
+			z2 = z1;
+			z1 = z0;
+			z0 = x;
+			isWrap = 0;
+			cycleLen += 1.0;
+			//if (!(z2 <= 0.0f && z1 > 0.0f))return;//fake zero crossing
+			//true zero crossing:
+
+			float a = (z3 + z2) * 0.5;
+			float b = (z1 + z0) * 0.5;
+			//float a = z2;
+			//float b = z1;
+			float x0 = a / (a - b);
+
+			//if (x0 < 0)x0 = 0;
+			//if (x0 > 1)x0 = 1;
+			if (x0 >= 0.0f && x0 <= 1.0f)
+			{
+				isWrap = 1;
+				where = x0;
+				dt = 1.0 / cycleLen;
+				cycleLen = where;
+			}
+			//else assert(0);
+		}
+		float Get() final override
+		{
+			return 0;
+		}
+	};
+
 	class OscTest
 	{
 	private:
+		ZeroCrossDetector zcd;
 		WaveformOsc osc1;
 		WaveformOsc osc2;
 		float dt1 = 0, dt2 = 0;
@@ -296,16 +378,23 @@ namespace MinusMKI
 			dt2 = freq * sync / sr;
 			this->fb = fb;
 			this->duty = pwm;
+			osc1.SetPWM(duty);
+			osc1.SetWaveform(form);
+
 			osc2.SyncTo(osc1);
 			osc2.SetPWM(duty);
 			osc2.SetWaveform(form);
+
 		}
+		float lastv1 = 0;
 		float ProcessSample()
 		{
+			zcd.Step(lastv1);
 			osc1.Step(dt1 + fbv * fb);
 			osc2.Step(dt2 + fbv * fb);
 			float v1 = osc1.Get();
 			float v2 = osc2.Get();
+			lastv1 = v1;
 			fbv = v2;
 			return v2;
 		}
@@ -328,7 +417,7 @@ namespace MinusMKI
 	class UnisonTest2
 	{
 	private:
-		constexpr static int UnisonNum = 200;
+		constexpr static int UnisonNum = 1;
 		OscTest wav[UnisonNum];
 		float unitvol = 1.0 / sqrtf(UnisonNum);
 	public:
