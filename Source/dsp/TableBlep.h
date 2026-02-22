@@ -31,7 +31,7 @@ private:
 	float y1 = 0.0f;
 	float y2 = 0.0f;
 
-	float a = 0.995f;//改这个！
+	float a = 0.999f;//改这个！
 	float b = a * 0.999f;
 public:
 	void Add(float blepDC, float where)

@@ -11,7 +11,7 @@ namespace MinusMKI
 	private:
 	protected:
 		Oscillator* syncDst = nullptr;
-		using Blep = Lagrange4thBlep;
+		using Blep = TableBlep;
 	public:
 		virtual void SyncTo(Oscillator& dst)
 		{
@@ -140,6 +140,228 @@ namespace MinusMKI
 			return v * 2.0 - 1.0;
 		}
 	};
+	class TriOscillator final : public Oscillator
+	{
+	private:
+		Blep blep;
+		float t = 0;
+		float dt = 0;
+
+		// 周期边界 Wrap 状态 (底部峰值, 相位 0 或 1)
+		int isWrap = 0;
+		float t2 = 0, where2 = 0;
+
+		// 内部占空比跨越状态 (顶部峰值, 相位 = duty)
+		int isDutyCross = 0;
+		float dutyWhere = 0;
+
+		float startPhase = 0; // 初始相位 [0,1]
+
+		// PWM 相关参数
+		float duty = 0.5f;
+		float slope_diff = 8.0f; // 预计算的斜率变化绝对值
+
+		// 辅助内联函数：获取理想无带限的波形值 [-1, 1]
+		inline float GetNaiveValue(float p) const
+		{
+			p -= std::floor(p); // 确保在 [0, 1) 内
+			if (p < duty)
+				return -1.0f + 2.0f * p / duty; // 上升段
+			else
+				return 1.0f - 2.0f * (p - duty) / (1.0f - duty); // 下降段
+		}
+
+		// 辅助内联函数：获取当前的理论斜率 (每相位单位)
+		inline float GetNaiveSlope(float p) const
+		{
+			p -= std::floor(p);
+			if (p < duty) return 2.0f / duty;
+			else return -2.0f / (1.0f - duty);
+		}
+
+	public:
+		TriOscillator()
+		{
+			SetPWM(0.5f); // 默认完美对称三角波
+		}
+
+		// 新增：设置 PWM (占空比)
+		inline void SetPWM(float d)
+		{
+			// 限制在安全范围内，防止斜率为无穷大导致除零崩溃
+			if (d < 0.001f) d = 0.001f;
+			if (d > 0.999f) d = 0.999f;
+			duty = d;
+
+			// 预计算斜率跳变的绝对差值
+			// 上升斜率 = 2/duty, 下降斜率 = -2/(1-duty)
+			// 差值 = (2/duty) - (-2/(1-duty)) = 2 / (duty * (1 - duty))
+			slope_diff = 2.0f / (duty * (1.0f - duty));
+		}
+
+		inline void SetStartPhase(float phi)
+		{
+			startPhase = phi;
+		}
+
+		inline void SetPhase(float phi, float where = 0)
+		{
+			float newt = phi;
+			// 强行跳相，需要同时修补幅度 (BLEP) 和 斜率 (BLAMP)
+			float val_diff = GetNaiveValue(newt) - GetNaiveValue(t);
+			float slope_d = GetNaiveSlope(newt) - GetNaiveSlope(t);
+
+			if (std::abs(val_diff) > 1e-6f) blep.Add(val_diff, where, 1);
+			if (std::abs(slope_d) > 1e-6f) blep.Add(slope_d * dt, where, 2);
+
+			t = newt;
+		}
+
+		inline bool IsWrapThisSample() const final override { return isWrap; }
+		inline float GetWrapWhere() const final override { return where2; }
+		inline float GetDT() const final override { return dt; }
+
+		inline void Step(float dt1) final override
+		{
+			dt = dt1;
+			if (dt > 1.0f) dt = 1.0f;
+			if (dt < -1.0f) dt = -1.0f;
+
+			float t_old = t;
+			t += dt;
+
+			isWrap = 0;
+			isDutyCross = 0;
+
+			if (dt > 0.0f)
+			{
+				if (t >= 1.0f) WrapPhaseDown();
+				// 检测是否跨越了顶部峰值 (duty)
+				if (t_old < duty && t >= duty)
+				{
+					isDutyCross = 1;
+					dutyWhere = (t - duty) / dt;
+				}
+			}
+			else if (dt < 0.0f)
+			{
+				if (t < 0.0f) WrapPhaseUp();
+				// 反向检测跨越顶部峰值
+				if (t_old > duty && t <= duty)
+				{
+					isDutyCross = 1;
+					dutyWhere = (t - duty) / dt;
+				}
+			}
+		}
+
+		inline void WrapPhaseDown()
+		{
+			t2 = t - 1.0f;
+			where2 = t2 / dt;
+			if (where2 < 0.0f) where2 = 0.0f;
+			if (where2 > 1.0f) where2 = 1.0f;
+			isWrap = 1;
+		}
+
+		inline void WrapPhaseUp()
+		{
+			t2 = t + 1.0f;
+			where2 = t2 / dt;
+			if (where2 < 0.0f) where2 = 0.0f;
+			if (where2 > 1.0f) where2 = 1.0f;
+			isWrap = 1;
+		}
+
+		inline void ApplyWrap()
+		{
+			t = t2;
+			// 底部峰值折角：斜率从下降突变为上升
+			// 必须使用 Stage 2 (BLAMP)，且缩放必须乘以 dt！
+			blep.Add(slope_diff * dt, where2, 2);
+		}
+
+		inline void ApplyDutyCross()
+		{
+			if (dutyWhere < 0.0f) dutyWhere = 0.0f;
+			if (dutyWhere > 1.0f) dutyWhere = 1.0f;
+			// 顶部峰值折角：斜率从上升突变为下降 (所以是负号)
+			blep.Add(-slope_diff * dt, dutyWhere, 2);
+		}
+
+		inline void DoSync(float dstWhere)
+		{
+			// 1. 如果自己原本的峰值发生在被硬同步之前，先处理自己的
+			if (isWrap && dstWhere < where2) {
+				ApplyWrap();
+				isWrap = 0;
+			}
+			if (isDutyCross && dstWhere < dutyWhere) {
+				ApplyDutyCross();
+				isDutyCross = 0;
+			}
+
+			// 2. 精确计算同步前后的相位
+			float phase_before = (t - dt) + dt * (1.0f - dstWhere);
+			float phase_after = startPhase;
+
+			// 3. 极其关键！硬同步会导致波形被“生硬切断”
+			// 这意味着既有幅度的突变 (BLEP)，也有斜率的突变 (BLAMP)！
+			float val_before = GetNaiveValue(phase_before);
+			float val_after = GetNaiveValue(phase_after);
+			blep.Add(val_after - val_before, dstWhere, 1); // Stage 1: BLEP
+
+			float slope_before = GetNaiveSlope(phase_before);
+			float slope_after = GetNaiveSlope(phase_after);
+			blep.Add((slope_after - slope_before) * dt, dstWhere, 2); // Stage 2: BLAMP
+
+			// 4. 计算被同步后，剩余时间跑完的最终相位
+			t = phase_after + dstWhere * dt;
+
+			// 5. 检测在同步之后的剩余时间里，是否又跨越了峰值
+			if (dt > 0.0f) {
+				if (t >= 1.0f) {
+					t -= 1.0f;
+					blep.Add(slope_diff * dt, (t - 0.0f) / dt, 2);
+				}
+				else if (phase_after < duty && t >= duty) {
+					blep.Add(-slope_diff * dt, (t - duty) / dt, 2);
+				}
+			}
+			else if (dt < 0.0f) {
+				if (t < 0.0f) {
+					t += 1.0f;
+					blep.Add(slope_diff * dt, (t - 1.0f) / dt, 2);
+				}
+				else if (phase_after > duty && t <= duty) {
+					blep.Add(-slope_diff * dt, (t - duty) / dt, 2);
+				}
+			}
+		}
+
+		float Get() final override
+		{
+			bool isSync = syncDst && syncDst->IsWrapThisSample();
+			float syncTime = isSync ? syncDst->GetWrapWhere() : -1.0f;
+
+			if (isSync)
+			{
+				DoSync(syncTime);
+			}
+			else
+			{
+				// 如果没有同步打断，常规应用 Wrap 和 顶部峰值的 BLAMP
+				if (isWrap) ApplyWrap();
+				if (isDutyCross) ApplyDutyCross();
+			}
+
+			blep.Step();
+
+			// 因为 GetNaiveValue 直接输出理想的 [-1, 1] 波形
+			// 所以直接加上 BLAMP/BLEP 的残差即可
+			return GetNaiveValue(t) + blep.Get();
+		}
+	};
 
 	class WaveformOsc final :public Oscillator
 	{
@@ -235,7 +457,7 @@ namespace MinusMKI
 			float v2 = saw2.Get();
 			float pwm = v1 - v2;
 			//return pwm;//test
-			
+
 			float pwmdc = 0;
 			if (syncDst)
 			{
@@ -251,7 +473,7 @@ namespace MinusMKI
 
 			float dutyfix = duty + 0.001;
 			float trifix = dt / (dutyfix * (1.0f - dutyfix));
-			tri = pwm * trifix + tri * 0.999;
+			tri = pwm * trifix + tri * 0.995;
 
 			float fixmix = duty * 50;
 			if (fixmix <= 1.0)
@@ -286,88 +508,11 @@ namespace MinusMKI
 		}
 	};
 
-	class ZeroCrossDetector final :public Oscillator
-	{
-	private:
-		float z0 = 0;
-		float z1 = 0;
-		float z2 = 0;
-		float z3 = 0;
-		int isWrap = 0;
-		float where = 0;
-
-		float dt = 0.0000001;
-		float cycleLen = 0;
-	public:
-		void SyncTo(Oscillator& dst) final override
-		{
-		}
-		void UnregSync() final override
-		{
-		}
-
-		inline bool IsWrapThisSample() const final override
-		{
-			if (syncDst) return syncDst->IsWrapThisSample();
-			return isWrap;
-		}
-		inline float GetWrapWhere() const final override
-		{
-			if (syncDst) return syncDst->GetWrapWhere();
-			return where;
-		}
-		inline float GetDT() const final override
-		{
-			if (syncDst) return syncDst->GetDT();
-			return dt;
-		}
-
-		inline float hornor_fdivdf(float x, float c0, float c1, float c2, float c3)
-		{
-			float fx = c0 + x * (c1 + x * (c2 + x * c3));
-			float dfx = c1 + x * (2.0f * c2 + x * 3.0f * c3);
-			return fx / dfx;
-		}
-		inline void Step(float x) final override
-		{
-			z3 = z2;
-			z2 = z1;
-			z1 = z0;
-			z0 = x;
-			isWrap = 0;
-			cycleLen += 1.0;
-			//if (!(z2 <= 0.0f && z1 > 0.0f))return;//fake zero crossing
-			//true zero crossing:
-
-			float a = (z3 + z2) * 0.5;
-			float b = (z1 + z0) * 0.5;
-			//float a = z2;
-			//float b = z1;
-			float x0 = a / (a - b);
-
-			//if (x0 < 0)x0 = 0;
-			//if (x0 > 1)x0 = 1;
-			if (x0 >= 0.0f && x0 <= 1.0f)
-			{
-				isWrap = 1;
-				where = x0;
-				dt = 1.0 / cycleLen;
-				cycleLen = where;
-			}
-			//else assert(0);
-		}
-		float Get() final override
-		{
-			return 0;
-		}
-	};
-
 	class OscTest
 	{
 	private:
-		ZeroCrossDetector zcd;
-		SawOscillator osc1;
-		SawOscillator osc2;
+		TriOscillator osc1;
+		TriOscillator osc2;
 		float dt1 = 0, dt2 = 0;
 		float duty = 0.5;
 		float fb = 0, fbv = 0;
@@ -386,15 +531,12 @@ namespace MinusMKI
 			//osc2.SetWaveform(form);
 
 		}
-		float lastv1 = 0;
 		float ProcessSample()
 		{
-			zcd.Step(lastv1);
 			osc1.Step(dt1 + fbv * fb);
 			osc2.Step(dt2 + fbv * fb);
 			float v1 = osc1.Get();
 			float v2 = osc2.Get();
-			lastv1 = v1;
 			fbv = v2;
 			return v2;
 		}
@@ -409,8 +551,8 @@ namespace MinusMKI
 		}
 		void SetStartPhase(float sp)
 		{
-			osc1.SetStartPhase(sp);
-			osc2.SetStartPhase(sp);
+			//osc1.SetStartPhase(sp);
+			//osc2.SetStartPhase(sp);
 		}
 	};
 

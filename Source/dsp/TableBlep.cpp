@@ -195,24 +195,32 @@ namespace TableBlepCoeffs
 		mpblamp.resize(len, 0);
 
 		float intv = 0;//积分
-		float intv2 = 0;
+		//float intv2 = 0;
 		for (int i = 0; i < len; ++i)
 		{
 			intv += x[i].real();
-			intv2 += intv;
+			//intv2 += intv;
 			mpblit[i] = x[i].real();
 			mpblep[i] = intv;
-			mpblamp[i] = intv2;
+			//mpblamp[i] = intv2;
 		}
 		for (int i = 0; i < len; ++i)
 		{
 			mpblit[i] = mpblit[i] / intv * (numTables + 1);
 			mpblep[i] = mpblep[i] / intv - 1.0;
-			mpblamp[i] = -0.5 * (-mpblamp[i] / intv2 + (float)i / len) * (numTables + 1);
+			//mpblamp[i] = -0.5 * (-mpblamp[i] / intv2 + (float)i / len) * (numTables + 1);
 		}
 		//为mpblit,mpblep,mpblamp叠加直流补偿窗
 		ApplyDCCompensation(mpblit, len);
 		ApplyDCCompensation(mpblep, len);
+		
+		double blepintv = 0.0;
+		double dtv = (double)wsiz / len;
+		for (int i = 0; i < len; ++i)
+		{
+			blepintv += mpblep[i];
+			mpblamp[i] = blepintv * dtv;
+		}
 		ApplyDCCompensation(mpblamp, len);
 
 		for (int i = 0; i < numTables + 1; ++i)
