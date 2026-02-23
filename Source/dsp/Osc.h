@@ -628,11 +628,176 @@ namespace MinusMKI
 		}
 	};
 
+	class WaveformOsc3 :public Oscillator//全写一起
+	{
+	private:
+		Blep triblep;
+		Blep blep;
+
+		float duty = 0.5;//duty∈[0.0,0.5]
+		float dt = 0.001;
+		float t1 = 0, t2 = 0;//t1是三角波上升的状态(t1+=dt/duty,t2+=dt)，然后各检测wrap
+		int isWrap1 = 0, isWrap2 = 0;
+		float where1 = 0, where2 = 0;
+		float slope1 = 0, slope2 = 0;
+		float nextt2 = 0;
+		float tristate = 0;//0：上升沿，1：下降沿
+
+		float GetNaiveTri(float x)//x∈[0,1]
+		{
+			return x < duty ? x / duty : (1.0 - x) / (1.0 - duty);
+
+
+			if (dt >= duty)//如果1个采样内上升1，此时可以认为是锯齿波
+			{
+				return -x;
+			}//多写一个状态可以让duty∈[0,1]，但是我懒
+			else
+			{
+				return x < duty ? x / duty : (1.0 - x) / (1.0 - duty);
+			}
+		}
+	public:
+		void SetPWM(float duty)
+		{
+			this->duty = duty * 0.5;
+		}
+		inline void SetStartPhase(float phi)
+		{
+		}
+		inline void SetPhase(float phi, float where = 0)
+		{
+		}
+
+		inline bool IsWrapThisSample() const final override
+		{
+			return isWrap2;
+		}
+		inline float GetWrapWhere() const  final override
+		{
+			return where2;
+		}
+		inline float GetDT() const final override
+		{
+			return dt;
+		}
+		inline void Step(float dt1) final override
+		{
+			dt = dt1;
+			if (dt > 1.0)dt = 1.0;
+			if (dt < -1.0)dt = -1.0;
+			t2 += dt;
+
+			isWrap1 = 0;
+			isWrap2 = 0;
+			if (tristate == 0)
+			{
+				if (t1 < duty && t2 >= duty && dt>0.0)WrapPhaseDown1();
+				else if (t2 < duty && t1 >= duty && dt < 0.0)WrapPhaseUp1();
+			}
+			if (t2 >= 1.0)WrapPhaseDown2();
+			else if (t2 < 0.0)WrapPhaseUp2();
+
+			t1 = t2;
+		}
+
+		inline void WrapPhaseDown1()//只预备状态，不更新
+		{
+			isWrap1 = 1;
+			where1 = (t2 - duty) / dt;
+			if (where1 > 1.0)where1 = 1.0;
+			if (where1 < 0.0)where1 = 0.0;
+			slope1 = -dt / (duty * (1.0 - duty));
+		}
+		inline void WrapPhaseUp1()//只预备状态，不更新
+		{
+			isWrap1 = 1;
+			where1 = (t2 - duty) / dt;
+			if (where1 > 1.0)where1 = 1.0;
+			if (where1 < 0.0)where1 = 0.0;
+			slope1 = dt / (duty * (1.0 - duty));
+		}
+		inline void WrapPhaseDown2()//只预备状态，不更新
+		{
+			isWrap2 = 1;
+
+			nextt2 = t2;
+			nextt2 -= (int)nextt2;
+			where2 = nextt2 / dt;
+			if (where2 > 1.0)where2 = 1.0;
+			if (where2 < 0.0)where2 = 0.0;
+			slope2 = dt / (duty * (1.0 - duty));
+		}
+		inline void WrapPhaseUp2()//只预备状态，不更新
+		{
+			isWrap2 = 1;
+			nextt2 = t2;
+			where2 = nextt2 / dt;
+			if (where2 > 1.0)where2 = 1.0;
+			if (where2 < 0.0)where2 = 0.0;
+			slope2 = -dt / (duty * (1.0 - duty));
+			nextt2 += 1;
+		}
+		inline void ApplyWrap1()
+		{
+			triblep.Add(slope1, where1, BLAMP_MODE);
+			tristate = 1;
+		}
+		inline void ApplyWrap2()
+		{
+			triblep.Add(slope2, where2, BLAMP_MODE);
+			t2 = nextt2;
+			tristate = 0;
+		}
+		inline void DoSync(float dstWhere)
+		{
+			if (isWrap1 && dstWhere < where1)
+			{
+				ApplyWrap1();//先处理自己的wrap
+				isWrap1 = 0;
+			}
+			if (isWrap2 && dstWhere < where2)
+			{
+				ApplyWrap2();//先处理自己的wrap
+				isWrap2 = 0;
+			}
+			float syncPhase = dstWhere * dt;
+			float diff = syncPhase - t2;
+			triblep.Add(diff, dstWhere, BLEP_MODE);
+			t2 = syncPhase;
+			if (t2 >= 1.0)
+			{
+				int amp = t2;
+				t2 -= amp;
+				triblep.Add(-amp, t2 / dt, BLEP_MODE);
+			}
+		}
+		float Get() final override
+		{
+			bool isSync = syncDst && syncDst->IsWrapThisSample();
+			float syncTime = isSync ? syncDst->GetWrapWhere() : -1.0f;
+
+			if (isSync)
+			{
+				DoSync(syncTime);
+			}
+			else
+			{
+				if (isWrap1) ApplyWrap1();
+				if (isWrap2) ApplyWrap2();
+			}
+
+			triblep.Step();
+			float tri = GetNaiveTri(t2) + triblep.Get();
+			return tri * 2.0 - 1.0;
+		}
+	};
+
 	class OscTest
 	{
 	private:
-		WaveformOsc osc1;
-		WaveformOsc osc2;
+		WaveformOsc3 osc1;
+		WaveformOsc3 osc2;
 		float dt1 = 0, dt2 = 0;
 		float duty = 0.5;
 		float fb = 0, fbv = 0;
@@ -644,16 +809,16 @@ namespace MinusMKI
 			this->fb = fb;
 			this->duty = pwm;
 			osc1.SetPWM(duty);
-			osc1.SetWaveform(form);
+			//osc1.SetWaveform(form);
 
-			osc2.SyncTo(osc1);
+			//osc2.SyncTo(osc1);
 			osc2.SetPWM(duty);
-			osc2.SetWaveform(form);
+			//osc2.SetWaveform(form);
 		}
 		float ProcessSample()
 		{
-			osc1.Step(dt1 + fbv * fb);
-			osc2.Step(dt2 + fbv * fb);
+			osc1.Step(dt1);
+			osc2.Step(dt2);
 			float v1 = osc1.Get();
 			float v2 = osc2.Get();
 			fbv = v2;
@@ -678,7 +843,7 @@ namespace MinusMKI
 	class UnisonTest2
 	{
 	private:
-		constexpr static int UnisonNum = 200;
+		constexpr static int UnisonNum = 1;
 		OscTest wav[UnisonNum];
 		float unitvol = 1.0 / sqrtf(UnisonNum);
 	public:

@@ -12,6 +12,10 @@ namespace TableBlepCoeffs
 	constexpr static float bandLimit = 0.95;
 }
 
+constexpr static int BLIT_MODE = 0;
+constexpr static int BLEP_MODE = 1;
+constexpr static int BLAMP_MODE = 2;
+
 class TableBlep
 {
 private:
@@ -20,7 +24,7 @@ private:
 	int pos = 0;
 public:
 	TableBlep();
-	void Add(float amp, float where, int stage = 1);
+	void Add(float amp, float where, int stage = BLEP_MODE);
 	void Step();
 	float Get();
 };
