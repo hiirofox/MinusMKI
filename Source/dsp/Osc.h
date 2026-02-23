@@ -632,7 +632,7 @@ namespace MinusMKI
 	{
 	private:
 		Blep triblep;
-		Blep blep;
+		Blep pwmblep;
 
 		float duty = 0.5;//duty∈[0.0,0.5]
 		float dt = 0.001;
@@ -641,9 +641,19 @@ namespace MinusMKI
 		float where1 = 0, where2 = 0;
 		float slope1 = 0, slope2 = 0;
 
-		float GetNaiveTri(float x)//x∈[0,1]
+		float startPhase = 0.0f; // 起始相位
+
+		inline float GetNaiveTri(float x)//x∈[0,1]
 		{
 			return x < duty ? x / duty : (1.0 - x) / (1.0 - duty);
+		}
+		inline float GetNaivePWM(float x)
+		{
+			return x < duty ? 1 : 0;
+		}
+		inline float GetNaiveSaw(float x)
+		{
+			return x;
 		}
 		float CrossDetector(float x, float dx, float threshold)
 		{
@@ -666,9 +676,7 @@ namespace MinusMKI
 		}
 		inline void SetStartPhase(float phi)
 		{
-		}
-		inline void SetPhase(float phi, float where = 0)
-		{
+			t = phi;
 		}
 
 		inline bool IsWrapThisSample() const final override
@@ -711,10 +719,12 @@ namespace MinusMKI
 		inline void ApplyWrap1()
 		{
 			triblep.Add(slope1, where1, BLAMP_MODE);
+			pwmblep.Add(-1.0, where1, BLEP_MODE);
 		}
 		inline void ApplyWrap2()
 		{
 			triblep.Add(slope2, where2, BLAMP_MODE);
+			pwmblep.Add(1.0, where2, BLEP_MODE);
 		}
 		inline void DoSync(float syncWhere)
 		{
@@ -765,14 +775,18 @@ namespace MinusMKI
 			t_sync -= floorf(t_sync); // 限定在 [0, 1) 区间内
 
 			// 3. 补偿 Sync 瞬间的数值阶跃 (BLEP)
-			float diffv = 0.0f - GetNaiveTri(t_sync);
-			triblep.Add(diffv, syncWhere, BLEP_MODE);
+			float diffTri = 0.0f - GetNaiveTri(t_sync);
+			float pwmValueBeforeSync = isFalling ? 0.0f : 1.0f;
+			float diffPwm = 1.0f - pwmValueBeforeSync;
+			triblep.Add(diffTri, syncWhere, BLEP_MODE);
+			pwmblep.Add(diffPwm, syncWhere, BLEP_MODE);
 
 			// 4. 补偿 Sync 瞬间的斜率突变 (BLAMP)
 			// 使用推导出的 isFalling 状态，完美避开 t_sync 处于 0.0 或 1.0 时的边界误判
 			if (isFalling)
 			{
 				triblep.Add(slope2, syncWhere, BLAMP_MODE);
+				//pwmblep.Add(1.0, syncWhere, BLEP_MODE);
 			}
 
 			// 5. 计算 Sync 重置后，在本采样周期内继续累加的相位
@@ -786,10 +800,12 @@ namespace MinusMKI
 			if (syncWrapWhere1 >= 0.0f && syncWrapWhere1 <= 1.0f)
 			{
 				triblep.Add(slope1, syncWrapWhere1 * syncWhere, BLAMP_MODE);
+				pwmblep.Add(-1.0, syncWrapWhere1 * syncWhere, BLEP_MODE);
 			}
 			if (syncWrapWhere2 >= 0.0f && syncWrapWhere2 <= 1.0f)
 			{
 				triblep.Add(slope2, syncWrapWhere2 * syncWhere, BLAMP_MODE);
+				pwmblep.Add(1.0, syncWrapWhere2 * syncWhere, BLEP_MODE);
 			}
 
 			// 7. 更新 Oscillator 最终在这个周期的相位
@@ -810,8 +826,10 @@ namespace MinusMKI
 			}
 
 			triblep.Step();
+			pwmblep.Step();
 			float tri = GetNaiveTri(t) + triblep.Get();
-			return tri * 2.0 - 1.0;
+			float pwm = GetNaivePWM(t) + pwmblep.Get();
+			return pwm / sqrtf(duty * 2.0) * 2.0 - 1.0;
 		}
 	};
 
