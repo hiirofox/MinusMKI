@@ -657,11 +657,6 @@ namespace MinusMKI
 				return x < duty ? x / duty : (1.0 - x) / (1.0 - duty);
 			}
 		}
-		float GetNaiveTriSlope(float phase)
-		{
-			phase -= floorf(phase);
-			return phase < duty ? dt / duty : -dt / (1.0f - duty);
-		}
 	public:
 		void SetPWM(float duty)
 		{
@@ -862,8 +857,8 @@ namespace MinusMKI
 		}
 		float ProcessSample()
 		{
-			osc1.Step(-dt1);
-			osc2.Step(-dt2);
+			osc1.Step(dt1);
+			osc2.Step(dt2);
 			float v1 = osc1.Get();
 			float v2 = osc2.Get();
 			fbv = v2;
