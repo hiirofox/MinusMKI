@@ -754,25 +754,22 @@ namespace MinusMKI
 		}
 		inline void DoSync(float dstWhere)
 		{
-			if (isWrap1 && dstWhere < where1)
+			if (isWrap1 && isWrap2)
 			{
-				ApplyWrap1();//先处理自己的wrap
-				isWrap1 = 0;
+				//where1,where2,dstwhere
 			}
-			if (isWrap2 && dstWhere < where2)
+			else if (isWrap1)
 			{
-				ApplyWrap2();//先处理自己的wrap
-				isWrap2 = 0;
+				//where1,dstwhere
 			}
-			float syncPhase = dstWhere * dt;
-			float diff = GetNaiveTri(syncPhase) - GetNaiveTri(t2);
-			float slopediff = what ? ;//todo
-			triblep.Add(diff, dstWhere, BLEP_MODE);//波形的跳变
-			triblep.Add(slopediff, dstWhere, BLAMP_MODE);//斜率的跳变
-			t1 = syncPhase - duty;
-			t2 = syncPhase;
-			if (t1 < 0.0) t1 += 1.0;
-			else if (t1 > 1.0) t1 -= 1.0;
+			else if (isWrap2)
+			{
+				//where2,dstwhere
+			}
+			else //纯粹sync
+			{
+
+			}
 		}
 		float Get() final override
 		{
@@ -798,8 +795,8 @@ namespace MinusMKI
 	class OscTest
 	{
 	private:
-		WaveformOsc3 osc1;
-		WaveformOsc3 osc2;
+		WaveformOsc2 osc1;
+		WaveformOsc2 osc2;
 		float dt1 = 0, dt2 = 0;
 		float duty = 0.5;
 		float fb = 0, fbv = 0;
@@ -811,16 +808,16 @@ namespace MinusMKI
 			this->fb = fb;
 			this->duty = pwm;
 			osc1.SetPWM(duty);
-			//osc1.SetWaveform(form);
+			osc1.SetWaveform(form);
 
 			osc2.SyncTo(osc1);
 			osc2.SetPWM(duty);
-			//osc2.SetWaveform(form);
+			osc2.SetWaveform(form);
 		}
 		float ProcessSample()
 		{
-			osc1.Step(dt1);
-			osc2.Step(dt2);
+			osc1.Step(-dt1);
+			osc2.Step(-dt2);
 			float v1 = osc1.Get();
 			float v2 = osc2.Get();
 			fbv = v2;
