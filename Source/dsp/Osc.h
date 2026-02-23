@@ -657,6 +657,11 @@ namespace MinusMKI
 				return x < duty ? x / duty : (1.0 - x) / (1.0 - duty);
 			}
 		}
+		float GetNaiveTriSlope(float phase)
+		{
+			phase -= floorf(phase);
+			return phase < duty ? dt / duty : -dt / (1.0f - duty);
+		}
 	public:
 		void SetPWM(float duty)
 		{
@@ -732,12 +737,11 @@ namespace MinusMKI
 		inline void WrapPhaseUp2()//只预备状态，不更新
 		{
 			isWrap2 = 1;
-			nextt2 = t2;
-			where2 = nextt2 / dt;
+			nextt2 = t2 + 1.0;
+			where2 = t2 / dt;
 			if (where2 > 1.0)where2 = 1.0;
 			if (where2 < 0.0)where2 = 0.0;
 			slope2 = -dt / (duty * (1.0 - duty));
-			nextt2 += 1;
 		}
 		inline void ApplyWrap1()
 		{
@@ -754,22 +758,18 @@ namespace MinusMKI
 		}
 		inline void DoSync(float dstWhere)
 		{
-			if (isWrap1 && isWrap2)
+			if (isWrap1 && where1 <= dstWhere)
 			{
-				//where1,where2,dstwhere
+				ApplyWrap1();
+				isWrap1 = 0;
 			}
-			else if (isWrap1)
+			if (isWrap2 && where2 <= dstWhere)
 			{
-				//where1,dstwhere
+				ApplyWrap2();
+				isWrap2 = 0;
 			}
-			else if (isWrap2)
-			{
-				//where2,dstwhere
-			}
-			else //纯粹sync
-			{
 
-			}
+			float synct = dstWhere * dt;
 		}
 		float Get() final override
 		{
@@ -795,8 +795,8 @@ namespace MinusMKI
 	class OscTest
 	{
 	private:
-		WaveformOsc2 osc1;
-		WaveformOsc2 osc2;
+		WaveformOsc3 osc1;
+		WaveformOsc3 osc2;
 		float dt1 = 0, dt2 = 0;
 		float duty = 0.5;
 		float fb = 0, fbv = 0;
@@ -808,11 +808,11 @@ namespace MinusMKI
 			this->fb = fb;
 			this->duty = pwm;
 			osc1.SetPWM(duty);
-			osc1.SetWaveform(form);
+			//osc1.SetWaveform(form);
 
-			osc2.SyncTo(osc1);
+			//osc2.SyncTo(osc1);
 			osc2.SetPWM(duty);
-			osc2.SetWaveform(form);
+			//osc2.SetWaveform(form);
 		}
 		float ProcessSample()
 		{
