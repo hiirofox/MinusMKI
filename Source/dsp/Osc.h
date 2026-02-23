@@ -765,15 +765,14 @@ namespace MinusMKI
 				isWrap2 = 0;
 			}
 			float syncPhase = dstWhere * dt;
-			float diff = syncPhase - t2;
-			triblep.Add(diff, dstWhere, BLEP_MODE);
+			float diff = GetNaiveTri(syncPhase) - GetNaiveTri(t2);
+			float slopediff = what ? ;//todo
+			triblep.Add(diff, dstWhere, BLEP_MODE);//波形的跳变
+			triblep.Add(slopediff, dstWhere, BLAMP_MODE);//斜率的跳变
+			t1 = syncPhase - duty;
 			t2 = syncPhase;
-			if (t2 >= 1.0)
-			{
-				int amp = t2;
-				t2 -= amp;
-				triblep.Add(-amp, t2 / dt, BLEP_MODE);
-			}
+			if (t1 < 0.0) t1 += 1.0;
+			else if (t1 > 1.0) t1 -= 1.0;
 		}
 		float Get() final override
 		{
@@ -814,7 +813,7 @@ namespace MinusMKI
 			osc1.SetPWM(duty);
 			//osc1.SetWaveform(form);
 
-			//osc2.SyncTo(osc1);
+			osc2.SyncTo(osc1);
 			osc2.SetPWM(duty);
 			//osc2.SetWaveform(form);
 		}
