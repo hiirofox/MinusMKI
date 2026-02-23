@@ -628,7 +628,7 @@ namespace MinusMKI
 		}
 	};
 
-	class WaveformOsc3 :public Oscillator//全写一起
+	class WaveformOsc3 :public Oscillator
 	{
 	private:
 		Blep triblep;
@@ -636,26 +636,28 @@ namespace MinusMKI
 
 		float duty = 0.5;//duty∈[0.0,0.5]
 		float dt = 0.001;
-		float t1 = 0, t2 = 0;//t1是三角波上升的状态(t1+=dt/duty,t2+=dt)，然后各检测wrap
+		float t = 0;
 		int isWrap1 = 0, isWrap2 = 0;
 		float where1 = 0, where2 = 0;
 		float slope1 = 0, slope2 = 0;
-		float nextt1 = 0, nextt2 = 0;
-		float tristate = 0;//0：上升沿，1：下降沿
 
 		float GetNaiveTri(float x)//x∈[0,1]
 		{
 			return x < duty ? x / duty : (1.0 - x) / (1.0 - duty);
-
-
-			if (dt >= duty)//如果1个采样内上升1，此时可以认为是锯齿波
+		}
+		float CrossDetector(float x, float dx, float threshold)
+		{
+			if (dx > 0.0f)
 			{
-				return -x;
-			}//多写一个状态可以让duty∈[0,1]，但是我懒
-			else
-			{
-				return x < duty ? x / duty : (1.0 - x) / (1.0 - duty);
+				float C = std::floor(x - threshold) + threshold;
+				if (C > x - dx) return (x - C) / dx;
 			}
+			else if (dx < 0.0f)
+			{
+				float C = std::ceil(x - threshold) + threshold;
+				if (C < x - dx) return (x - C) / dx;
+			}
+			return -1.0f;
 		}
 	public:
 		void SetPWM(float duty)
@@ -686,140 +688,120 @@ namespace MinusMKI
 			dt = dt1;
 			if (dt > 1.0)dt = 1.0;
 			if (dt < -1.0)dt = -1.0;
-			t1 += dt;
-			t2 += dt;
+			t += dt;
 
 			isWrap1 = 0;
 			isWrap2 = 0;
+			where1 = CrossDetector(t, dt, duty);
+			where2 = CrossDetector(t, dt, 1.0);
+			if (where1 >= 0.0 && where1 <= 1.0)
+			{
+				isWrap1 = 1;
+				slope1 = -fabsf(dt) / (duty * (1.0 - duty));
+			}
+			if (where2 >= 0.0 && where2 <= 1.0)
+			{
+				isWrap2 = 1;
+				slope2 = fabsf(dt) / (duty * (1.0 - duty));
+			}
 
-			if (t1 >= 1.0)WrapPhaseDown1();
-			else if (t1 < 0.0)WrapPhaseUp1();
-			if (t2 >= 1.0)WrapPhaseDown2();
-			else if (t2 < 0.0)WrapPhaseUp2();
+			t -= floorf(t);
 		}
 
-		inline void WrapPhaseDown1()//只预备状态，不更新
-		{
-			isWrap1 = 1;
-			//nextt1 = t2 - duty;
-			nextt1 = t1 - (int)t1;
-			where1 = nextt1 / dt;
-			if (where1 > 1.0)where1 = 1.0;
-			if (where1 < 0.0)where1 = 0.0;
-			slope1 = -dt / (duty * (1.0 - duty));
-		}
-		inline void WrapPhaseUp1()//只预备状态，不更新
-		{
-			isWrap1 = 1;
-			//nextt1 = t2 - duty;
-			nextt1 = t1 + 1.0;
-			where1 = t1 / dt;
-			if (where1 > 1.0)where1 = 1.0;
-			if (where1 < 0.0)where1 = 0.0;
-			slope1 = dt / (duty * (1.0 - duty));
-		}
-		inline void WrapPhaseDown2()//只预备状态，不更新
-		{
-			isWrap2 = 1;
-
-			nextt2 = t2;
-			nextt2 -= (int)nextt2;
-			where2 = nextt2 / dt;
-			if (where2 > 1.0)where2 = 1.0;
-			if (where2 < 0.0)where2 = 0.0;
-			slope2 = dt / (duty * (1.0 - duty));
-		}
-		inline void WrapPhaseUp2()//只预备状态，不更新
-		{
-			isWrap2 = 1;
-			nextt2 = t2 + 1.0;
-			where2 = t2 / dt;
-			if (where2 > 1.0)where2 = 1.0;
-			if (where2 < 0.0)where2 = 0.0;
-			slope2 = -dt / (duty * (1.0 - duty));
-		}
 		inline void ApplyWrap1()
 		{
 			triblep.Add(slope1, where1, BLAMP_MODE);
-			t1 = nextt1;
 		}
 		inline void ApplyWrap2()
 		{
 			triblep.Add(slope2, where2, BLAMP_MODE);
-			t2 = nextt2;
-			t1 = nextt2 - duty;
-			if (t1 < 0.0) t1 += 1.0;
-			else if (t1 > 1.0) t1 -= 1.0;
 		}
-		inline void DoSync(float dstWhere)
+		inline void DoSync(float syncWhere)
 		{
-			// 1. 纯几何算出 Sync 发生“绝对瞬间”的旧相位，并严防越界 (这是高频爆炸的元凶)
-			// t2 目前是在 Sample 结束时的状态(t_start + dt)
-			// Sync 瞬间的相位 = (t2 - dt) + 走过的步进
-			float phaseAtSync = (t2 - dt) + dt * (1.0f - dstWhere);
-			phaseAtSync -= floorf(phaseAtSync); // 极其关键：死死锁在 [0, 1) 区间，否则 GetNaiveTri 会算出巨大负数
+			// 1. 判断在 Sync 发生 "之前" 是否已经发生了自然反转
+			// where 越大代表在当前 sample 中发生得越早。
+			// 这里严格使用 >。如果刚好 ==，说明自然反转和 Sync 同时发生，Sync 在物理上会覆盖自然反转。
+			bool wrap1_before = isWrap1 && (where1 > syncWhere);
+			bool wrap2_before = isWrap2 && (where2 > syncWhere);
 
-			// 2. 处理在 Sync 发生之前就已经触发的正常 Wrap
-			if (isWrap1)
+			// isFalling 用于精准记录 Sync 发生那一瞬间，波形是否处于下降沿
+			bool isFalling = false;
+
+			// 按照时间先后顺序（where 大的先发生）执行 Sync 前的 Wrap 并更新斜率状态
+			if (wrap1_before && wrap2_before)
 			{
-				// >= 代表 Wrap 的剩余时间更长，即发生得比 Sync 更早
-				if (where1 >= dstWhere) ApplyWrap1();
-				isWrap1 = 0; // 无论是否 Apply，必须无条件清空，防止状态污染
+				if (where1 > where2) {
+					ApplyWrap1(); // 先过 Peak
+					ApplyWrap2(); // 后过 Valley
+					isFalling = false; // 过完 Valley 进入上升沿
+				}
+				else {
+					ApplyWrap2(); // 先过 Valley
+					ApplyWrap1(); // 后过 Peak
+					isFalling = true; // 过完 Peak 进入下降沿
+				}
 			}
-			if (isWrap2)
+			else if (wrap1_before)
 			{
-				if (where2 >= dstWhere) ApplyWrap2();
-				isWrap2 = 0;
+				ApplyWrap1();
+				isFalling = true; // 跨越 duty 后，必然处于下降沿
 			}
-
-			// 3. 补偿由于硬重置导致的幅度跳变 (BLEP)
-			float triBefore = GetNaiveTri(phaseAtSync);
-			float triAfter = GetNaiveTri(0.0f); // 硬同步强制归 0
-			float diff = triAfter - triBefore;
-			triblep.Add(diff, dstWhere, BLEP_MODE);
-
-			// 4. 补偿斜率突变 (BLAMP)
-			float slopeBefore = (phaseAtSync < duty) ? (1.0f / duty) : (-1.0f / (1.0f - duty));
-			float slopeAfter = 1.0f / duty; // 归 0 后必然是上升沿
-			float slopeDiff = (slopeAfter - slopeBefore) * dt;
-			if (slopeDiff != 0.0f)
+			else if (wrap2_before)
 			{
-				triblep.Add(slopeDiff, dstWhere, BLAMP_MODE);
+				ApplyWrap2();
+				isFalling = false; // 跨越 1.0 后，必然处于上升沿
 			}
-
-			// 5. 更新后续剩余时间的基础相位
-			float syncPhase = dstWhere * dt;
-
-			// 6. 处理 Sync 发生后，在本 Sample 结束前又越过了波峰的极端高频情况
-			if (dt > 0.0f && syncPhase >= duty)
+			else
 			{
-				float wherePeak = (syncPhase - duty) / dt;
-				float jumpSlope = -dt / (duty * (1.0f - duty));
-				triblep.Add(jumpSlope, wherePeak, BLAMP_MODE);
-			}
-			else if (dt < 0.0f && syncPhase <= duty - 1.0f) // 兼容反向播放
-			{
-				float wherePeak = (syncPhase - (duty - 1.0f)) / dt;
-				float jumpSlope = dt / (duty * (1.0f - duty));
-				triblep.Add(jumpSlope, wherePeak, BLAMP_MODE);
+				// 如果在 Sync 之前没有任何自然反转，
+				// 说明 Sync 瞬间的斜率状态等于这个采样周期一开始的状态。
+				float t_start = t + (isWrap2 ? (dt > 0.0f ? 1.0f : -1.0f) : 0.0f) - dt;
+				float p_start = t_start - floorf(t_start);
+				isFalling = (p_start >= duty);
 			}
 
-			// 7. 写入最终相位状态，准备迎接下一个 Step
-			t2 = syncPhase;
-			t1 = syncPhase - duty;
+			// 2. 精确计算 Sync 发生瞬间的相位
+			float t_sync = t - syncWhere * dt;
+			t_sync -= floorf(t_sync); // 限定在 [0, 1) 区间内
 
-			// 使用 floorf 进行绝对安全的折叠，替代原本的 if(t1<0)t1+=1 (因为极端情况下 dt 可能造成偏移超 1.0)
-			t2 -= floorf(t2);
-			t1 -= floorf(t1);
+			// 3. 补偿 Sync 瞬间的数值阶跃 (BLEP)
+			float diffv = 0.0f - GetNaiveTri(t_sync);
+			triblep.Add(diffv, syncWhere, BLEP_MODE);
+
+			// 4. 补偿 Sync 瞬间的斜率突变 (BLAMP)
+			// 使用推导出的 isFalling 状态，完美避开 t_sync 处于 0.0 或 1.0 时的边界误判
+			if (isFalling)
+			{
+				triblep.Add(slope2, syncWhere, BLAMP_MODE);
+			}
+
+			// 5. 计算 Sync 重置后，在本采样周期内继续累加的相位
+			float dt_after = syncWhere * dt;
+			float t_new_unwrapped = dt_after;
+
+			// 6. 检查 Sync 之后到采样点结束的这段时间内，是否又触发了 Wrap
+			float syncWrapWhere1 = CrossDetector(t_new_unwrapped, dt_after, duty);
+			float syncWrapWhere2 = CrossDetector(t_new_unwrapped, dt_after, 1.0f);
+
+			if (syncWrapWhere1 >= 0.0f && syncWrapWhere1 <= 1.0f)
+			{
+				triblep.Add(slope1, syncWrapWhere1 * syncWhere, BLAMP_MODE);
+			}
+			if (syncWrapWhere2 >= 0.0f && syncWrapWhere2 <= 1.0f)
+			{
+				triblep.Add(slope2, syncWrapWhere2 * syncWhere, BLAMP_MODE);
+			}
+
+			// 7. 更新 Oscillator 最终在这个周期的相位
+			t = t_new_unwrapped - floorf(t_new_unwrapped);
 		}
 		float Get() final override
 		{
 			bool isSync = syncDst && syncDst->IsWrapThisSample();
-			float syncTime = isSync ? syncDst->GetWrapWhere() : -1.0f;
-
+			float syncWhere = isSync ? syncDst->GetWrapWhere() : -1.0f;
 			if (isSync)
 			{
-				DoSync(syncTime);
+				DoSync(syncWhere);
 			}
 			else
 			{
@@ -828,7 +810,7 @@ namespace MinusMKI
 			}
 
 			triblep.Step();
-			float tri = GetNaiveTri(t2) + triblep.Get();
+			float tri = GetNaiveTri(t) + triblep.Get();
 			return tri * 2.0 - 1.0;
 		}
 	};
