@@ -640,7 +640,7 @@ namespace MinusMKI
 		int isWrap1 = 0, isWrap2 = 0;
 		float where1 = 0, where2 = 0;
 		float slope1 = 0, slope2 = 0;
-		float nextt2 = 0;
+		float nextt1 = 0, nextt2 = 0;
 		float tristate = 0;//0：上升沿，1：下降沿
 
 		float GetNaiveTri(float x)//x∈[0,1]
@@ -686,25 +686,24 @@ namespace MinusMKI
 			dt = dt1;
 			if (dt > 1.0)dt = 1.0;
 			if (dt < -1.0)dt = -1.0;
+			t1 += dt;
 			t2 += dt;
 
 			isWrap1 = 0;
 			isWrap2 = 0;
-			if (tristate == 0)
-			{
-				if (t1 < duty && t2 >= duty && dt>0.0)WrapPhaseDown1();
-				else if (t2 < duty && t1 >= duty && dt < 0.0)WrapPhaseUp1();
-			}
+
+			if (t1 >= 1.0)WrapPhaseDown1();
+			else if (t1 < 0.0)WrapPhaseUp1();
 			if (t2 >= 1.0)WrapPhaseDown2();
 			else if (t2 < 0.0)WrapPhaseUp2();
-
-			t1 = t2;
 		}
 
 		inline void WrapPhaseDown1()//只预备状态，不更新
 		{
 			isWrap1 = 1;
-			where1 = (t2 - duty) / dt;
+			//nextt1 = t2 - duty;
+			nextt1 = t1 - (int)t1;
+			where1 = nextt1 / dt;
 			if (where1 > 1.0)where1 = 1.0;
 			if (where1 < 0.0)where1 = 0.0;
 			slope1 = -dt / (duty * (1.0 - duty));
@@ -712,7 +711,9 @@ namespace MinusMKI
 		inline void WrapPhaseUp1()//只预备状态，不更新
 		{
 			isWrap1 = 1;
-			where1 = (t2 - duty) / dt;
+			//nextt1 = t2 - duty;
+			nextt1 = t1 + 1.0;
+			where1 = t1 / dt;
 			if (where1 > 1.0)where1 = 1.0;
 			if (where1 < 0.0)where1 = 0.0;
 			slope1 = dt / (duty * (1.0 - duty));
@@ -741,13 +742,15 @@ namespace MinusMKI
 		inline void ApplyWrap1()
 		{
 			triblep.Add(slope1, where1, BLAMP_MODE);
-			tristate = 1;
+			t1 = nextt1;
 		}
 		inline void ApplyWrap2()
 		{
 			triblep.Add(slope2, where2, BLAMP_MODE);
 			t2 = nextt2;
-			tristate = 0;
+			t1 = nextt2 - duty;
+			if (t1 < 0.0) t1 += 1.0;
+			else if (t1 > 1.0) t1 -= 1.0;
 		}
 		inline void DoSync(float dstWhere)
 		{
