@@ -11,7 +11,7 @@ namespace MinusMKI
 	private:
 	protected:
 		Oscillator* syncDst = nullptr;
-		using Blep = TableBlep;
+		using Blep = Lagrange4thBlep;
 	public:
 		virtual void SyncTo(Oscillator& dst)
 		{
@@ -681,8 +681,8 @@ namespace MinusMKI
 		inline void Step(float _dt) final override
 		{
 			dt = _dt;
-			//if (dt > 1.0)dt = 1.0;
-			//if (dt < -1.0)dt = -1.0;
+			if (dt > 0.999)dt = 0.999;
+			if (dt < -0.999)dt = -0.999;
 			saw1.Step(dt);
 			saw2.Step(dt);
 			tri.Step(dt);

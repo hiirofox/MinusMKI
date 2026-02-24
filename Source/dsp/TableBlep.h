@@ -35,14 +35,35 @@ private:
 	float y1 = 0.0f;
 	float y2 = 0.0f;
 
-	float a = 0.995f;//改这个！
-	float b = a * 0.999f;
+	float a = 0.999f;
+	float b = a * 0.999f; 
+
+	float z_a = a - 1.0f;
+	float z_a_sq_half = (a - 1.0f) * (a - 1.0f) * 0.5f;
+	float z_b = b - 1.0f;
+	float z_b_sq_half = (b - 1.0f) * (b - 1.0f) * 0.5f;
+	float inv_1_minus_a = 1.0f / (1.0f - a);
+	float inv_1_minus_b = 1.0f / (1.0f - b);
+
 public:
+	void SetA(float newA)
+	{
+		a = newA;
+		b = a * 0.999f;
+		z_a = a - 1.0f;
+		z_a_sq_half = z_a * z_a * 0.5f;
+		z_b = b - 1.0f;
+		z_b_sq_half = z_b * z_b * 0.5f;
+		inv_1_minus_a = 1.0f / (1.0f - a);
+		inv_1_minus_b = 1.0f / (1.0f - b);
+	}
+
 	void Add(float blepDC, float where)
 	{
-		float s1 = std::powf(a, where);//可以用泰勒展开优化
-		float s2 = std::powf(b, where);
-		float ds = (s1 / (1.0f - a)) - (s2 / (1.0f - b));
+		float x_x_minus_1 = where * (where - 1.0f);
+		float s1 = 1.0f + where * z_a + x_x_minus_1 * z_a_sq_half;
+		float s2 = 1.0f + where * z_b + x_x_minus_1 * z_b_sq_half;
+		float ds = (s1 * inv_1_minus_a) - (s2 * inv_1_minus_b);
 		float dcfix = blepDC / ds;
 		y1 += dcfix * s1;
 		y2 -= dcfix * s2;
@@ -64,6 +85,15 @@ private:
 	float z1 = 0, z2 = 0, z3 = 0, z4 = 0;
 	float v = 0.0;
 
+	inline float SquareWelch(float x)
+	{
+		x = (x - 2.0f) * 0.5f;
+		x = x * x;
+		x = 1.0f - x;
+		x = x * x;
+		return x;
+	}
+	const float blepIntV = 15.0f / 16.0f;
 	IirDcCompensator dcc;
 public:
 	void Add(float amp, float where, int stage = 1)
@@ -77,6 +107,11 @@ public:
 			p2 = -25.0f / 24.0f + x2 * (1.0f / 2.0f + x * (1.0f / 6.0f + x * (-1.0f / 8.0f)));
 			p3 = -1.0f / 2.0f + x * (1.0f + x * (-1.0f / 4.0f + x * (-1.0f / 3.0f + x * (1.0f / 8.0f))));
 			p4 = 1.0f / 24.0f + x2 * (-1.0f / 6.0f + x * (1.0f / 6.0f + x * (-1.0f / 24.0f)));
+			//p1 += SquareWelch(x + 0.0f) * blepIntV;
+			//p2 += SquareWelch(x + 1.0f) * blepIntV;
+			//p3 += SquareWelch(x + 2.0f) * blepIntV;
+			//p4 += SquareWelch(x + 3.0f) * blepIntV;
+			dcc.Add((p1 + p2 + p3 + p4) * amp, where);
 		}
 		else if (stage == 2)
 		{
@@ -92,8 +127,6 @@ public:
 		z2 = z2 + p2 * amp;
 		z3 = z3 + p3 * amp;
 		z4 = z4 + p4 * amp;
-
-		//dcc.Add((p1 + p2 + p3 + p4) * amp, where);
 	}
 	void Step()
 	{
@@ -102,11 +135,10 @@ public:
 		z2 = z3;
 		z3 = z4;
 		z4 = 0;
-		//dcc.Step();
+		dcc.Step();
 	}
 	float Get()
 	{
-		return v;
-		//return v - dcc.Get();
+		return v - dcc.Get();
 	}
 };
