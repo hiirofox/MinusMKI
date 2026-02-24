@@ -11,7 +11,7 @@ namespace MinusMKI
 	private:
 	protected:
 		Oscillator* syncDst = nullptr;
-		using Blep = Lagrange4thBlep;
+		using Blep = TableBlep;
 	public:
 		virtual void SyncTo(Oscillator& dst)
 		{
@@ -687,7 +687,7 @@ namespace MinusMKI
 			saw2.Step(dt);
 			tri.Step(dt);
 		}
-		float lastpwm = 0;
+		float lastpwm = 0, lastv = 0;
 		float Get() final override
 		{
 			float v1 = saw1.Get();
@@ -695,13 +695,17 @@ namespace MinusMKI
 
 			float v3 = -tri.Get();
 
-			float sawmix = duty * 100.0;
+			float pwm = v1 - v2;
+
+			float sawmix = duty * 50.0;
 			if (sawmix < 1.0)
 			{
 				v3 = v1 * (1.0 - sawmix) + v3 * sawmix;
+				float dv = v1 - lastv;
+				lastv = v1;
+				pwm = dv * (1.0 - sawmix) + pwm * sawmix;
 			}
 
-			float pwm = v1 - v2;
 			float imp = pwm - lastpwm;
 			lastpwm = pwm;
 

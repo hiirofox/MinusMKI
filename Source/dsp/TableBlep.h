@@ -64,29 +64,19 @@ private:
 	float z1 = 0, z2 = 0, z3 = 0, z4 = 0;
 	float v = 0.0;
 
-	inline float Poly4thUnder1(float x)
-	{
-		x = 1.0f + x * (-2.0f + x * (0.5f + x * (0.6666667f + x * -0.25f)));
-		return x * 0.5;
-	}
-
-	inline float Poly4thOver1(float x)
-	{
-		x = 8.0f + x * (-24.0f + x * (22.0f + x * (-8.0f + x)));
-		return 0.0833333f * x * 0.5;
-	}
 	IirDcCompensator dcc;
 public:
 	void Add(float amp, float where, int stage = 1)
 	{
 		float p1 = 0.0, p2 = 0.0, p3 = 0.0, p4 = 0.0;
-
 		if (stage == 1)
 		{
-			p1 = -1.0 + Poly4thOver1(2.0f - where);
-			p2 = -1.0 + Poly4thUnder1(1.0f - where);
-			p3 = -Poly4thUnder1(where);
-			p4 = -Poly4thOver1(where + 1.0f);
+			float x = where;
+			float x2 = x * x;
+			p1 = -1.0f + x2 * (-1.0f / 12.0f + x2 * (1.0f / 24.0f));
+			p2 = -25.0f / 24.0f + x2 * (1.0f / 2.0f + x * (1.0f / 6.0f + x * (-1.0f / 8.0f)));
+			p3 = -1.0f / 2.0f + x * (1.0f + x * (-1.0f / 4.0f + x * (-1.0f / 3.0f + x * (1.0f / 8.0f))));
+			p4 = 1.0f / 24.0f + x2 * (-1.0f / 6.0f + x * (1.0f / 6.0f + x * (-1.0f / 24.0f)));
 		}
 		else if (stage == 2)
 		{
@@ -103,7 +93,7 @@ public:
 		z3 = z3 + p3 * amp;
 		z4 = z4 + p4 * amp;
 
-		dcc.Add((p1 + p2 + p3 + p4) * amp, where);
+		//dcc.Add((p1 + p2 + p3 + p4) * amp, where);
 	}
 	void Step()
 	{
@@ -112,11 +102,11 @@ public:
 		z2 = z3;
 		z3 = z4;
 		z4 = 0;
-		dcc.Step();
+		//dcc.Step();
 	}
 	float Get()
 	{
-		//return v;
-		return v - dcc.Get();
+		return v;
+		//return v - dcc.Get();
 	}
 };
