@@ -120,6 +120,12 @@ namespace MinusMKI
 				t -= amp;
 				blep.Add(-amp, t / dt);
 			}
+			else if (t < 0.0)
+			{
+				float overshoot = t;
+				t += 1.0;
+				blep.Add(1.0, overshoot / dt);
+			}
 		}
 		float Get() final override
 		{
@@ -527,7 +533,6 @@ namespace MinusMKI
 
 		inline void SetPWM(float d)
 		{
-			// 保持你原有的映射习惯，并钳位防止除零
 			d *= 0.5f;
 
 			this->duty = d;
@@ -603,16 +608,118 @@ namespace MinusMKI
 		}
 	};
 
-	class WaveformOsc3 :public Oscillator
+	class WaveformOsc3 final :public Oscillator
 	{
 	private:
+		SawOscillator saw1, saw2;
+		TriOscillator tri;
+
+		float duty = 0.25, dt = 0.0;
+		float form = 0;//imp(0)->pwm(1)->tri(2)
+
+		float startPhase = 0;
 	public:
+		WaveformOsc3()
+		{
+			SetPWM(0.25);
+		}
+		inline void SetStartPhase(float sp)
+		{
+			startPhase = sp;
+			float p1 = startPhase;
+			float p2 = startPhase + duty;
+			p1 -= (int)p1;
+			p2 -= (int)p2;
+			saw1.SetStartPhase(p1);
+			saw2.SetStartPhase(p2);
+			tri.SetStartPhase(p1);
+		}
+		inline void SetPWM(float duty)
+		{
+			duty *= 0.5;
+			this->duty = duty;
+			float p1 = startPhase;
+			float p2 = startPhase + duty;
+			p1 -= (int)p1;
+			p2 -= (int)p2;
+			saw1.SetStartPhase(p1);
+			saw2.SetStartPhase(p2);
+			tri.SetPWM(duty);
+		}
+		inline void SetWaveform(float form)
+		{
+			this->form = form;
+		}
+		void SyncTo(Oscillator& dst) final override
+		{
+			Oscillator::SyncTo(dst);
+			saw1.SyncTo(dst);
+			saw2.SyncTo(dst);
+			tri.SyncTo(dst);
+		}
+		void UnregSync() final override
+		{
+			Oscillator::UnregSync();
+			saw1.UnregSync();
+			saw2.UnregSync();
+			tri.UnregSync();
+		}
+
+		inline bool IsWrapThisSample() const final override
+		{
+			return saw1.IsWrapThisSample();
+		}
+		inline float GetWrapWhere() const final override
+		{
+			return saw1.GetWrapWhere();
+		}
+		inline float GetDT() const final override
+		{
+			return dt;
+		}
+
+		inline void Step(float _dt) final override
+		{
+			dt = _dt;
+			//if (dt > 1.0)dt = 1.0;
+			//if (dt < -1.0)dt = -1.0;
+			saw1.Step(dt);
+			saw2.Step(dt);
+			tri.Step(dt);
+		}
+		float lastpwm = 0;
+		float Get() final override
+		{
+			float v1 = saw1.Get();
+			float v2 = saw2.Get();
+
+			float v3 = -tri.Get();
+
+			float pwm = v1 - v2;
+			float imp = pwm - lastpwm;
+			lastpwm = pwm;
+
+			float mix1 = 0, mix2 = 0, mix3 = 0;
+			if (form <= 1.0f)
+			{
+				mix1 = 1.0f - form;
+				mix2 = form;
+			}
+			else
+			{
+				mix2 = 2.0f - form;
+				mix3 = form - 1.0f;
+			}
+
+			float out = imp * mix1 + pwm * mix2 + v3 * mix3;
+			return out;
+		}
 	};
 	class OscTest
 	{
 	private:
-		TriOscillator osc1;
-		TriOscillator osc2;
+		WaveformOsc3 osc1;
+		WaveformOsc3 osc2;
 		float dt1 = 0, dt2 = 0;
 		float duty = 0.5;
 		float fb = 0, fbv = 0;
@@ -624,16 +731,16 @@ namespace MinusMKI
 			this->fb = fb;
 			this->duty = pwm;
 			osc1.SetPWM(duty);
-			//osc1.SetWaveform(form);
+			osc1.SetWaveform(form);
 
 			osc2.SyncTo(osc1);
 			osc2.SetPWM(duty);
-			//osc2.SetWaveform(form);
+			osc2.SetWaveform(form);
 		}
 		float ProcessSample()
 		{
-			osc1.Step(dt1);
-			osc2.Step(dt2);
+			osc1.Step(-dt1);
+			osc2.Step(-dt2);
 			float v1 = osc1.Get();
 			float v2 = osc2.Get();
 			fbv = v2;
@@ -658,7 +765,7 @@ namespace MinusMKI
 	class UnisonTest2
 	{
 	private:
-		constexpr static int UnisonNum = 200;
+		constexpr static int UnisonNum = 1;
 		OscTest wav[UnisonNum];
 		float unitvol = 1.0 / sqrtf(UnisonNum);
 	public:
