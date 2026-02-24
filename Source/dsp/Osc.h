@@ -11,7 +11,7 @@ namespace MinusMKI
 	private:
 	protected:
 		Oscillator* syncDst = nullptr;
-		using Blep = Lagrange4thBlep;
+		using Blep = TableBlep;
 	public:
 		virtual void SyncTo(Oscillator& dst)
 		{
@@ -775,7 +775,7 @@ namespace MinusMKI
 	class UnisonTest2
 	{
 	private:
-		constexpr static int UnisonNum = 1;
+		constexpr static int UnisonNum = 100;
 		OscTest wav[UnisonNum];
 		float unitvol = 1.0 / sqrtf(UnisonNum);
 	public:
