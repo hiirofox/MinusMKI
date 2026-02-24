@@ -280,6 +280,7 @@ namespace MinusMKI
 			return out;
 		}
 	};
+
 	class TriOscillator final : public Oscillator
 	{
 	private:
@@ -327,21 +328,12 @@ namespace MinusMKI
 		{
 			SetPWM(0.5f);
 		}
+
+		float naiveDuty = 0.5, naiveSlopeDiff = 0.0;
 		inline void SetPWM(float d)
 		{
-			if (d <= 0.00001f) {
-				duty = 0.0f;
-				saw_mode = -1; // 纯下降锯齿
-			}
-			else if (d >= 0.99999f) {
-				duty = 1.0f;
-				saw_mode = 1;  // 纯上升锯齿
-			}
-			else {
-				duty = d;
-				saw_mode = 0;  // 正常三角波
-				slope_diff = 2.0f / (duty * (1.0f - duty));
-			}
+			naiveDuty = d;
+			naiveSlopeDiff = 2.0f / (naiveDuty * (1.0f - naiveDuty));
 		}
 
 		inline void SetStartPhase(float phi)
@@ -370,6 +362,12 @@ namespace MinusMKI
 			dt = dt1;
 			if (dt > 1.0f) dt = 1.0f;
 			if (dt < -1.0f) dt = -1.0f;
+
+			duty = naiveDuty;
+			float dtfix = fabsf(dt);
+			if (duty < dtfix) { duty = dtfix; slope_diff = 2.0f / (duty * (1.0f - duty)); }
+			else if (1.0 - duty < dtfix) { duty = 1.0 - dtfix; slope_diff = 2.0f / (duty * (1.0f - duty)); }
+			else slope_diff = naiveSlopeDiff;
 
 			t_step_start = t;
 			t += dt;
@@ -628,11 +626,10 @@ namespace MinusMKI
 		}
 	};
 
-	class WaveformOsc3 :public Oscillator
+	class TriOscillator2 :public Oscillator
 	{
 	private:
 		Blep triblep;
-		Blep pwmblep;
 
 		float duty = 0.5;//duty∈[0.0,0.5]
 		float dt = 0.001;
@@ -647,32 +644,25 @@ namespace MinusMKI
 		{
 			return x < duty ? x / duty : (1.0 - x) / (1.0 - duty);
 		}
-		inline float GetNaivePWM(float x)
-		{
-			return x < duty ? 1 : 0;
-		}
-		inline float GetNaiveSaw(float x)
-		{
-			return x;
-		}
 		float CrossDetector(float x, float dx, float threshold)
 		{
 			if (dx > 0.0f)
 			{
-				float C = std::floor(x - threshold) + threshold;
+				float C = std::floorf(x - threshold) + threshold;
 				if (C > x - dx) return (x - C) / dx;
 			}
 			else if (dx < 0.0f)
 			{
-				float C = std::ceil(x - threshold) + threshold;
+				float C = std::ceilf(x - threshold) + threshold;
 				if (C < x - dx) return (x - C) / dx;
 			}
 			return -1.0f;
 		}
 	public:
+		float naiveDuty = 0.5;
 		void SetPWM(float duty)
 		{
-			this->duty = duty * 0.5;
+			naiveDuty = duty * 0.5;
 		}
 		inline void SetStartPhase(float phi)
 		{
@@ -696,6 +686,12 @@ namespace MinusMKI
 			dt = dt1;
 			if (dt > 1.0)dt = 1.0;
 			if (dt < -1.0)dt = -1.0;
+
+			duty = naiveDuty;
+			float dtfix = fabsf(dt);
+			if (duty < dtfix)duty = dtfix;
+			if (1.0 - duty < dtfix)duty = 1.0 - dtfix;
+
 			t += dt;
 
 			isWrap1 = 0;
@@ -719,12 +715,10 @@ namespace MinusMKI
 		inline void ApplyWrap1()
 		{
 			triblep.Add(slope1, where1, BLAMP_MODE);
-			pwmblep.Add(-1.0, where1, BLEP_MODE);
 		}
 		inline void ApplyWrap2()
 		{
 			triblep.Add(slope2, where2, BLAMP_MODE);
-			pwmblep.Add(1.0, where2, BLEP_MODE);
 		}
 		inline void DoSync(float syncWhere)
 		{
@@ -740,14 +734,12 @@ namespace MinusMKI
 			// 按照时间先后顺序（where 大的先发生）执行 Sync 前的 Wrap 并更新斜率状态
 			if (wrap1_before && wrap2_before)
 			{
+				ApplyWrap1(); // 先过 Peak
+				ApplyWrap2(); // 后过 Valley
 				if (where1 > where2) {
-					ApplyWrap1(); // 先过 Peak
-					ApplyWrap2(); // 后过 Valley
 					isFalling = false; // 过完 Valley 进入上升沿
 				}
 				else {
-					ApplyWrap2(); // 先过 Valley
-					ApplyWrap1(); // 后过 Peak
 					isFalling = true; // 过完 Peak 进入下降沿
 				}
 			}
@@ -776,18 +768,11 @@ namespace MinusMKI
 
 			// 3. 补偿 Sync 瞬间的数值阶跃 (BLEP)
 			float diffTri = 0.0f - GetNaiveTri(t_sync);
-			float pwmValueBeforeSync = isFalling ? 0.0f : 1.0f;
-			float diffPwm = 1.0f - pwmValueBeforeSync;
 			triblep.Add(diffTri, syncWhere, BLEP_MODE);
-			pwmblep.Add(diffPwm, syncWhere, BLEP_MODE);
 
 			// 4. 补偿 Sync 瞬间的斜率突变 (BLAMP)
 			// 使用推导出的 isFalling 状态，完美避开 t_sync 处于 0.0 或 1.0 时的边界误判
-			if (isFalling)
-			{
-				triblep.Add(slope2, syncWhere, BLAMP_MODE);
-				//pwmblep.Add(1.0, syncWhere, BLEP_MODE);
-			}
+			if (isFalling) triblep.Add(slope2, syncWhere, BLAMP_MODE);
 
 			// 5. 计算 Sync 重置后，在本采样周期内继续累加的相位
 			float dt_after = syncWhere * dt;
@@ -800,12 +785,10 @@ namespace MinusMKI
 			if (syncWrapWhere1 >= 0.0f && syncWrapWhere1 <= 1.0f)
 			{
 				triblep.Add(slope1, syncWrapWhere1 * syncWhere, BLAMP_MODE);
-				pwmblep.Add(-1.0, syncWrapWhere1 * syncWhere, BLEP_MODE);
 			}
 			if (syncWrapWhere2 >= 0.0f && syncWrapWhere2 <= 1.0f)
 			{
 				triblep.Add(slope2, syncWrapWhere2 * syncWhere, BLAMP_MODE);
-				pwmblep.Add(1.0, syncWrapWhere2 * syncWhere, BLEP_MODE);
 			}
 
 			// 7. 更新 Oscillator 最终在这个周期的相位
@@ -826,18 +809,20 @@ namespace MinusMKI
 			}
 
 			triblep.Step();
-			pwmblep.Step();
 			float tri = GetNaiveTri(t) + triblep.Get();
-			float pwm = GetNaivePWM(t) + pwmblep.Get();
-			return pwm / sqrtf(duty * 2.0) * 2.0 - 1.0;
+			return tri * 2.0 - 1.0;
 		}
 	};
-
+	class WaveformOsc3 :public Oscillator
+	{
+	private:
+	public:
+	};
 	class OscTest
 	{
 	private:
-		WaveformOsc3 osc1;
-		WaveformOsc3 osc2;
+		TriOscillator2 osc1;
+		TriOscillator2 osc2;
 		float dt1 = 0, dt2 = 0;
 		float duty = 0.5;
 		float fb = 0, fbv = 0;
@@ -857,8 +842,8 @@ namespace MinusMKI
 		}
 		float ProcessSample()
 		{
-			osc1.Step(dt1);
-			osc2.Step(dt2);
+			osc1.Step(-dt1);
+			osc2.Step(-dt2);
 			float v1 = osc1.Get();
 			float v2 = osc2.Get();
 			fbv = v2;
