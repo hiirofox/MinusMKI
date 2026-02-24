@@ -542,7 +542,7 @@ namespace MinusMKI
 		{
 			startPhase = sp;
 			float p1 = startPhase;
-			float p2 = startPhase + duty; 
+			float p2 = startPhase + duty;
 			p1 -= (int)p1;
 			p2 -= (int)p2;
 
@@ -593,7 +593,7 @@ namespace MinusMKI
 			if (dt < -0.999f) dt = -0.999f;
 
 			float s1_dt = dt;
-			if (s1_dt > 1.0f) s1_dt = 1.0f; 
+			if (s1_dt > 1.0f) s1_dt = 1.0f;
 			if (s1_dt < -1.0f) s1_dt = -1.0f;
 			s1_t += s1_dt;
 			s1_isWrap = 0;
@@ -841,7 +841,7 @@ namespace MinusMKI
 			return out;
 		}
 	};
-
+	/*
 	class WaveformOsc5 final : public Oscillator
 	{
 	private:
@@ -1178,6 +1178,365 @@ namespace MinusMKI
 			float out = imp * mix1 + pwm * mix2 + v3 * mix3;
 			return out;
 		}
+	};*/
+
+	class WaveformOsc5 final : public Oscillator
+	{
+	private:
+		Blep s1_blep;
+		Blep s2_blep;
+		Blep t_blep;
+
+		float s1_t = 0;
+		float s1_t_step_start = 0;
+		int s1_isWrap = 0;
+		float s1_t2 = 0, s1_amp2 = 0, s1_where2 = 0;
+		float s1_startPhase = 0;
+
+		float s2_t = 0;
+		int s2_isWrap = 0;
+		float s2_t2 = 0, s2_amp2 = 0, s2_where2 = 0;
+		float s2_startPhase = 0;
+
+		int t_isDutyCross = 0;
+		float t_dutyWhere = 0;
+		float t_duty = 0.5f;
+		float t_slope_diff = 8.0f;
+		float t_naiveDuty = 0.5f, t_naiveSlopeDiff = 0.0f;
+
+		float duty = 0.25f, dt = 0.0f;
+		float form = 0;
+		float mix1 = 0, mix2 = 0, mix3 = 0;
+		float startPhase = 0;
+		float lastpwm = 0, lastv = 0;
+
+		// --- 新增的预计算缓存变量，用于替代昂贵的除法和函数调用 ---
+		float inv_dt = 0.0f;
+		float abs_dt = 0.0f;
+		float inv_t_duty = 2.0f;
+		float inv_t_duty_comp = 2.0f;
+
+		// 快速的相位取模运算，替代 std::floor
+		inline float FastWrap(float p) const
+		{
+			int ip = static_cast<int>(p);
+			p -= ip;
+			if (p < 0.0f) p += 1.0f;
+			return p;
+		}
+
+		inline float TriGetNaiveValue(float p) const
+		{
+			p = FastWrap(p);
+			// 使用乘法替代除法
+			if (p < t_duty)
+				return -1.0f + 2.0f * p * inv_t_duty;
+			else
+				return 1.0f - 2.0f * (p - t_duty) * inv_t_duty_comp;
+		}
+
+		inline float TriGetNaiveSlope(float p) const
+		{
+			p = FastWrap(p);
+			// 使用乘法替代除法
+			if (p < t_duty) return 2.0f * inv_t_duty;
+			else return -2.0f * inv_t_duty_comp;
+		}
+
+	public:
+		WaveformOsc5()
+		{
+			SetPWM(0.25f);
+		}
+
+		inline void SetStartPhase(float sp)
+		{
+			startPhase = sp;
+			float p1 = startPhase;
+			float p2 = startPhase + duty;
+			p1 -= (int)p1;
+			p2 -= (int)p2;
+
+			s1_startPhase = p1;
+			s2_startPhase = p2;
+		}
+
+		inline void SetPWM(float d)
+		{
+			d *= 0.5f;
+			this->duty = d;
+			float p1 = startPhase;
+			float p2 = startPhase + duty;
+			p1 -= (int)p1;
+			p2 -= (int)p2;
+
+			s1_startPhase = p1;
+			s2_startPhase = p2;
+
+			t_naiveDuty = d;
+			t_naiveSlopeDiff = 2.0f / (t_naiveDuty * (1.0f - t_naiveDuty));
+		}
+
+		inline void SetWaveform(float form)
+		{
+			this->form = form;
+			if (form <= 1.0f)
+			{
+				mix1 = 1.0f - form;
+				mix2 = form;
+			}
+			else
+			{
+				mix2 = 2.0f - form;
+				mix3 = form - 1.0f;
+			}
+		}
+
+		inline bool IsWrapThisSample() const final override { return s1_isWrap; }
+		inline float GetWrapWhere() const final override { return s1_where2; }
+		inline float GetDT() const final override { return dt; }
+
+		inline void Step(float _dt) final override
+		{
+			dt = _dt;
+			if (dt > 0.999f) dt = 0.999f;
+			else if (dt < -0.999f) dt = -0.999f;
+
+			// 预计算绝对值和倒数，避免在后续逻辑和 Get() 中反复除以 dt
+			abs_dt = std::fabs(dt);
+			inv_dt = (dt != 0.0f) ? 1.0f / dt : 0.0f;
+
+			s1_t_step_start = s1_t;
+			s1_t += dt;
+			s1_isWrap = 0;
+			if (s1_t >= 1.0f) {
+				s1_t2 = s1_t - 1.0f;
+				s1_amp2 = -1.0f;
+				s1_where2 = s1_t2 * inv_dt; // 乘法替代除法
+				if (s1_where2 < 0.0f) s1_where2 = 0.0f;
+				else if (s1_where2 > 1.0f) s1_where2 = 1.0f;
+				s1_isWrap = 1;
+			}
+			else if (s1_t < 0.0f) {
+				s1_t2 = s1_t;
+				s1_where2 = s1_t2 * inv_dt; // 乘法替代除法
+				if (s1_where2 < 0.0f) s1_where2 = 0.0f;
+				else if (s1_where2 > 1.0f) s1_where2 = 1.0f;
+				s1_amp2 = 1.0f;
+				s1_t2 += 1.0f;
+				s1_isWrap = 1;
+			}
+
+			s2_t += dt;
+			s2_isWrap = 0;
+			if (s2_t >= 1.0f) {
+				s2_t2 = s2_t - 1.0f;
+				s2_amp2 = -1.0f;
+				s2_where2 = s2_t2 * inv_dt; // 乘法替代除法
+				if (s2_where2 < 0.0f) s2_where2 = 0.0f;
+				else if (s2_where2 > 1.0f) s2_where2 = 1.0f;
+				s2_isWrap = 1;
+			}
+			else if (s2_t < 0.0f) {
+				s2_t2 = s2_t;
+				s2_where2 = s2_t2 * inv_dt; // 乘法替代除法
+				if (s2_where2 < 0.0f) s2_where2 = 0.0f;
+				else if (s2_where2 > 1.0f) s2_where2 = 1.0f;
+				s2_amp2 = 1.0f;
+				s2_t2 += 1.0f;
+				s2_isWrap = 1;
+			}
+
+			t_duty = t_naiveDuty;
+			if (t_duty < abs_dt) {
+				t_duty = abs_dt;
+				t_slope_diff = 2.0f / (t_duty * (1.0f - t_duty));
+			}
+			else if (1.0f - t_duty < abs_dt) {
+				t_duty = 1.0f - abs_dt;
+				t_slope_diff = 2.0f / (t_duty * (1.0f - t_duty));
+			}
+			else {
+				t_slope_diff = t_naiveSlopeDiff;
+			}
+
+			// 预计算当前周期的 Triangle Duty 的倒数
+			inv_t_duty = 1.0f / t_duty;
+			inv_t_duty_comp = 1.0f / (1.0f - t_duty);
+
+			t_isDutyCross = 0;
+			if (dt > 0.0f) {
+				if (s1_t_step_start < t_duty && s1_t >= t_duty) {
+					t_isDutyCross = 1;
+					t_dutyWhere = (s1_t - t_duty) * inv_dt;
+				}
+				else if (s1_t_step_start < 1.0f + t_duty && s1_t >= 1.0f + t_duty) {
+					t_isDutyCross = 1;
+					t_dutyWhere = (s1_t - (1.0f + t_duty)) * inv_dt;
+				}
+			}
+			else if (dt < 0.0f) {
+				if (s1_t_step_start > t_duty && s1_t <= t_duty) {
+					t_isDutyCross = 1;
+					t_dutyWhere = (s1_t - t_duty) * inv_dt;
+				}
+				else if (s1_t_step_start > t_duty - 1.0f && s1_t <= t_duty - 1.0f) {
+					t_isDutyCross = 1;
+					t_dutyWhere = (s1_t - (t_duty - 1.0f)) * inv_dt;
+				}
+			}
+		}
+
+		float Get() final override
+		{
+			bool isSync = syncDst && syncDst->IsWrapThisSample();
+			float syncTime = isSync ? syncDst->GetWrapWhere() : -1.0f;
+
+			int shared_isWrap = s1_isWrap;
+			float shared_where2 = s1_where2;
+
+			if (isSync) {
+				if (s1_isWrap && syncTime < s1_where2) {
+					s1_t = s1_t2;
+					s1_blep.Add(s1_amp2, s1_where2);
+					s1_isWrap = 0;
+				}
+				float syncPhase = syncTime * dt + s1_startPhase;
+				float diff = syncPhase - s1_t;
+				s1_blep.Add(diff, syncTime);
+				s1_t = syncPhase;
+				if (s1_t >= 1.0f) {
+					int amp = static_cast<int>(s1_t);
+					s1_t -= amp;
+					s1_blep.Add(-amp, s1_t * inv_dt);
+				}
+				else if (s1_t < 0.0f) {
+					float overshoot = s1_t;
+					s1_t += 1.0f;
+					s1_blep.Add(1.0f, overshoot * inv_dt);
+				}
+			}
+			else if (s1_isWrap) {
+				s1_t = s1_t2;
+				s1_blep.Add(s1_amp2, s1_where2);
+			}
+			s1_blep.Step();
+			float v1 = (s1_t + s1_blep.Get()) * 2.0f - 1.0f;
+
+			if (isSync) {
+				if (s2_isWrap && syncTime < s2_where2) {
+					s2_t = s2_t2;
+					s2_blep.Add(s2_amp2, s2_where2);
+					s2_isWrap = 0;
+				}
+				float syncPhase = syncTime * dt + s2_startPhase;
+				float diff = syncPhase - s2_t;
+				s2_blep.Add(diff, syncTime);
+				s2_t = syncPhase;
+				if (s2_t >= 1.0f) {
+					int amp = static_cast<int>(s2_t);
+					s2_t -= amp;
+					s2_blep.Add(-amp, s2_t * inv_dt);
+				}
+				else if (s2_t < 0.0f) {
+					float overshoot = s2_t;
+					s2_t += 1.0f;
+					s2_blep.Add(1.0f, overshoot * inv_dt);
+				}
+			}
+			else if (s2_isWrap) {
+				s2_t = s2_t2;
+				s2_blep.Add(s2_amp2, s2_where2);
+			}
+			s2_blep.Step();
+			float v2 = (s2_t + s2_blep.Get()) * 2.0f - 1.0f;
+
+			if (isSync) {
+				if (shared_isWrap && shared_where2 > syncTime) {
+					t_blep.Add(t_slope_diff * abs_dt, shared_where2, 2);
+				}
+				if (t_isDutyCross && t_dutyWhere > syncTime) {
+					float dw = t_dutyWhere;
+					if (dw < 0.0f) dw = 0.0f;
+					else if (dw > 1.0f) dw = 1.0f;
+					t_blep.Add(-t_slope_diff * abs_dt, dw, 2);
+					t_isDutyCross = 0;
+				}
+
+				float phase_before = s1_t_step_start + dt * (1.0f - syncTime);
+				float phase_after = s1_startPhase;
+
+				float val_before = TriGetNaiveValue(phase_before);
+				float val_after = TriGetNaiveValue(phase_after);
+				if (std::fabs(val_after - val_before) > 1e-6f) {
+					t_blep.Add(val_after - val_before, syncTime, 1);
+				}
+
+				float slope_before = TriGetNaiveSlope(phase_before) * dt;
+				float slope_after = TriGetNaiveSlope(phase_after) * dt;
+				if (std::fabs(slope_after - slope_before) > 1e-6f) {
+					t_blep.Add(slope_after - slope_before, syncTime, 2);
+				}
+
+				float p_start = phase_after;
+				float p_end = phase_after + syncTime * dt;
+
+				if (dt > 0.0f) {
+					if (p_end >= 1.0f) {
+						t_blep.Add(t_slope_diff * abs_dt, (p_end - 1.0f) * inv_dt, 2);
+					}
+					if (p_start < t_duty && p_end >= t_duty) {
+						t_blep.Add(-t_slope_diff * abs_dt, (p_end - t_duty) * inv_dt, 2);
+					}
+					else if (p_start < 1.0f + t_duty && p_end >= 1.0f + t_duty) {
+						t_blep.Add(-t_slope_diff * abs_dt, (p_end - (1.0f + t_duty)) * inv_dt, 2);
+					}
+				}
+				else if (dt < 0.0f) {
+					if (p_end < 0.0f) {
+						t_blep.Add(t_slope_diff * abs_dt, p_end * inv_dt, 2);
+					}
+					if (p_start > t_duty && p_end <= t_duty) {
+						t_blep.Add(-t_slope_diff * abs_dt, (p_end - t_duty) * inv_dt, 2);
+					}
+					else if (p_start > t_duty - 1.0f && p_end <= t_duty - 1.0f) {
+						t_blep.Add(-t_slope_diff * abs_dt, (p_end - (t_duty - 1.0f)) * inv_dt, 2);
+					}
+				}
+
+				t_isDutyCross = 0;
+			}
+			else {
+				if (shared_isWrap) {
+					t_blep.Add(t_slope_diff * abs_dt, shared_where2, 2);
+				}
+				if (t_isDutyCross) {
+					float dw = t_dutyWhere;
+					if (dw < 0.0f) dw = 0.0f;
+					else if (dw > 1.0f) dw = 1.0f;
+					t_blep.Add(-t_slope_diff * abs_dt, dw, 2);
+				}
+			}
+
+			t_blep.Step();
+			float v3 = -(TriGetNaiveValue(s1_t) + t_blep.Get());
+
+			float pwm = v1 - v2;
+			float sawmix = duty * 50.0f;
+
+			if (sawmix < 1.0f)
+			{
+				v3 = v1 * (1.0f - sawmix) + v3 * sawmix;
+				float dv = v1 - lastv;
+				pwm = dv * (1.0f - sawmix) + pwm * sawmix;
+			}
+			lastv = v1;
+
+			float imp = pwm - lastpwm;
+			lastpwm = pwm;
+
+			return imp * mix1 + pwm * mix2 + v3 * mix3;
+		}
 	};
 	class OscTest
 	{
@@ -1203,8 +1562,8 @@ namespace MinusMKI
 		}
 		float ProcessSample()
 		{
-			osc1.Step(-dt1 + fb * fbv);
-			osc2.Step(-dt2 + fb * fbv);
+			osc1.Step(dt1 + fb * fbv);
+			osc2.Step(dt2 + fb * fbv);
 			float v1 = osc1.Get();
 			float v2 = osc2.Get();
 			fbv = v2;
@@ -1229,7 +1588,7 @@ namespace MinusMKI
 	class UnisonTest2
 	{
 	private:
-		constexpr static int UnisonNum = 50;
+		constexpr static int UnisonNum = 1;
 		OscTest wav[UnisonNum];
 		float unitvol = 1.0 / sqrtf(UnisonNum);
 	public:
