@@ -137,7 +137,7 @@ namespace TableBlepCoeffs
 		isInit = 1;
 
 		const int ntable = wsiz * (numTables + 1);
-		const int n = 32768;
+		const int n = 65536;
 		const int startpos = 0, endpos = n;
 		const int len = endpos - startpos;
 		wc *= (float)n / len;
@@ -158,7 +158,7 @@ namespace TableBlepCoeffs
 
 		if (usingMinPhase)
 		{
-			int cepn = n * 8;
+			int cepn = n * 4;
 			std::vector<std::complex<double>> x2(cepn, 0);
 			std::vector<std::complex<double>> cep(cepn, 0);
 			for (int i = 0; i < n; ++i) x2[i] = x[i];
@@ -213,7 +213,7 @@ namespace TableBlepCoeffs
 		//为mpblit,mpblep,mpblamp叠加直流补偿窗
 		ApplyDCCompensation(mpblit, len);
 		ApplyDCCompensation(mpblep, len);
-		
+
 		double blepintv = 0.0;
 		double dtv = (double)wsiz / len;
 		for (int i = 0; i < len; ++i)
@@ -228,7 +228,7 @@ namespace TableBlepCoeffs
 			for (int j = 0; j < wsiz; ++j)
 			{
 				int k = j * numTables + i;//max=ntable
-				double k2 = k * (len - 1) / ntable;//下采样
+				double k2 = (double)k * (len - 1) / ntable;//下采样
 				double frac = k2 - (int)k2;
 				int pos = k2;
 
@@ -249,33 +249,64 @@ TableBlep::TableBlep()
 
 void TableBlep::Add(float amp, float where, int stage)//0:blit 1:blep 2:blamp
 {
+	/*
 	float(*table)[TableBlepCoeffs::wsiz] = TableBlepCoeffs::tableBlep;
 	if (stage == 0)table = TableBlepCoeffs::tableBlit;
 	else if (stage == 2)table = TableBlepCoeffs::tableBlamp;
+	*/
+	static float(* const tables[3])[TableBlepCoeffs::wsiz] = {
+		TableBlepCoeffs::tableBlit,
+		TableBlepCoeffs::tableBlep,
+		TableBlepCoeffs::tableBlamp
+	};
+	float(*table)[TableBlepCoeffs::wsiz] = tables[stage];
 
-	float inf = where * TableBlepCoeffs::numTables;
-	int in1 = (int)inf;
-	int in2 = in1 + 1;
-	float frac = inf - in1;
-	float k1 = (1.0 - frac) * amp;
-	float k2 = frac * amp;
-
-	for (int i = 0, j = pos; i < TableBlepCoeffs::wsiz; ++i, ++j)
+	if constexpr (AddHQ)
 	{
-		float a = table[in1][i];
-		float b = table[in2][i];
-		float p = a * k1 + b * k2;
-		if (j >= TableBlepCoeffs::wsiz) j = 0;
-		buf[j] += p;
+		float inf = where * TableBlepCoeffs::numTables;
+		int in1 = (int)inf;
+		int in2 = in1 + 1;
+		float frac = inf - in1;
+		float k1 = (1.0f - frac) * amp;
+		float k2 = frac * amp;
+		const float* table1 = table[in1];
+		const float* table2 = table[in2];
+		int len1 = TableBlepCoeffs::wsiz - pos;
+		int len2 = TableBlepCoeffs::wsiz - len1;
+		for (int i = 0; i < len1; ++i)
+			buf[pos + i] += table1[i] * k1 + table2[i] * k2;
+		for (int i = 0; i < len2; ++i)
+		{
+			int table_idx = len1 + i;
+			buf[i] += table1[table_idx] * k1 + table2[table_idx] * k2;
+		}
+	}
+	else
+	{
+		int in1 = (int)(where * TableBlepCoeffs::numTables);
+		const float* currentTable = table[in1];
+		int len1 = TableBlepCoeffs::wsiz - pos;
+		int len2 = TableBlepCoeffs::wsiz - len1;
+		for (int i = 0; i < len1; ++i) buf[pos + i] += currentTable[i] * amp;
+		for (int i = 0; i < len2; ++i) buf[i] += currentTable[len1 + i] * amp;
 	}
 }
+
 void TableBlep::Step()
 {
 	v = buf[pos];
 	buf[pos] = 0;
-	pos++;
-	if (pos >= TableBlepCoeffs::wsiz) pos = 0;
+	if constexpr ((TableBlepCoeffs::wsiz & (TableBlepCoeffs::wsiz - 1)) == 0)
+	{
+		pos = (pos + 1) & (TableBlepCoeffs::wsiz - 1);
+	}
+	else
+	{
+		pos++;
+		if (pos >= TableBlepCoeffs::wsiz) pos = 0;
+	}
 }
+
 float TableBlep::Get()
 {
 	return v;

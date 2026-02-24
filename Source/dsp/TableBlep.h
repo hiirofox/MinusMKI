@@ -7,8 +7,8 @@
 
 namespace TableBlepCoeffs
 {
-	constexpr static int wsiz = 24;//既决定窗长，又决定阶数
-	constexpr static int numTables = 127;
+	constexpr static int wsiz = 28;//既决定窗长，又决定阶数
+	constexpr static int numTables = 511;
 	constexpr static float bandLimit = 0.95;
 }
 
@@ -19,6 +19,7 @@ constexpr static int BLAMP_MODE = 2;
 class TableBlep
 {
 private:
+	constexpr static bool AddHQ = true;
 	float buf[TableBlepCoeffs::wsiz] = { 0 };
 	float v = 0;
 	int pos = 0;
