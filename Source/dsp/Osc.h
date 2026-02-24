@@ -738,7 +738,7 @@ namespace MinusMKI
 		{
 			dt1 = freq / sr;
 			dt2 = freq * sync / sr;
-			this->fb = fb;
+			this->fb = fb * 0.01;
 			this->duty = pwm;
 			osc1.SetPWM(duty);
 			osc1.SetWaveform(form);
@@ -749,8 +749,8 @@ namespace MinusMKI
 		}
 		float ProcessSample()
 		{
-			osc1.Step(-dt1);
-			osc2.Step(-dt2);
+			osc1.Step(dt1 + fb * fbv);
+			osc2.Step(dt2 + fb * fbv);
 			float v1 = osc1.Get();
 			float v2 = osc2.Get();
 			fbv = v2;
@@ -775,7 +775,7 @@ namespace MinusMKI
 	class UnisonTest2
 	{
 	private:
-		constexpr static int UnisonNum = 100;
+		constexpr static int UnisonNum = 1;
 		OscTest wav[UnisonNum];
 		float unitvol = 1.0 / sqrtf(UnisonNum);
 	public:
