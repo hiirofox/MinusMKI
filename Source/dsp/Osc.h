@@ -31,6 +31,7 @@ namespace MinusMKI
 
 	};
 
+
 	class SawOscillator final :public Oscillator
 	{
 	private:
@@ -146,6 +147,7 @@ namespace MinusMKI
 			return v * 2.0 - 1.0;
 		}
 	};
+
 
 	class WaveformOsc final :public Oscillator
 	{
@@ -616,6 +618,7 @@ namespace MinusMKI
 
 		float duty = 0.25, dt = 0.0;
 		float form = 0;//imp(0)->pwm(1)->tri(2)
+		float mix1 = 0, mix2 = 0, mix3 = 0;
 
 		float startPhase = 0;
 	public:
@@ -649,6 +652,16 @@ namespace MinusMKI
 		inline void SetWaveform(float form)
 		{
 			this->form = form;
+			if (form <= 1.0f)
+			{
+				mix1 = 1.0f - form;
+				mix2 = form;
+			}
+			else
+			{
+				mix2 = 2.0f - form;
+				mix3 = form - 1.0f;
+			}
 		}
 		void SyncTo(Oscillator& dst) final override
 		{
@@ -702,24 +715,12 @@ namespace MinusMKI
 			{
 				v3 = v1 * (1.0 - sawmix) + v3 * sawmix;
 				float dv = v1 - lastv;
-				lastv = v1;
 				pwm = dv * (1.0 - sawmix) + pwm * sawmix;
 			}
+			lastv = v1;
 
 			float imp = pwm - lastpwm;
 			lastpwm = pwm;
-
-			float mix1 = 0, mix2 = 0, mix3 = 0;
-			if (form <= 1.0f)
-			{
-				mix1 = 1.0f - form;
-				mix2 = form;
-			}
-			else
-			{
-				mix2 = 2.0f - form;
-				mix3 = form - 1.0f;
-			}
 
 			float out = imp * mix1 + pwm * mix2 + v3 * mix3;
 			return out;
@@ -775,7 +776,7 @@ namespace MinusMKI
 	class UnisonTest2
 	{
 	private:
-		constexpr static int UnisonNum = 1;
+		constexpr static int UnisonNum = 300;
 		OscTest wav[UnisonNum];
 		float unitvol = 1.0 / sqrtf(UnisonNum);
 	public:
