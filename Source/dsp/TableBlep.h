@@ -35,12 +35,12 @@ private:
 	float y1 = 0.0f;
 	float y2 = 0.0f;
 
-	float a = 0.999f;//改这个！
+	float a = 0.995f;//改这个！
 	float b = a * 0.999f;
 public:
 	void Add(float blepDC, float where)
 	{
-		float s1 = std::powf(a, where);
+		float s1 = std::powf(a, where);//可以用泰勒展开优化
 		float s2 = std::powf(b, where);
 		float ds = (s1 / (1.0f - a)) - (s2 / (1.0f - b));
 		float dcfix = blepDC / ds;
@@ -72,36 +72,38 @@ private:
 
 	inline float Poly4thOver1(float x)
 	{
-		float poly = 8.0f + x * (-24.0f + x * (22.0f + x * (-8.0f + x)));
-		return 0.0833333f * poly * 0.5;
+		x = 8.0f + x * (-24.0f + x * (22.0f + x * (-8.0f + x)));
+		return 0.0833333f * x * 0.5;
 	}
-
 	IirDcCompensator dcc;
 public:
 	void Add(float amp, float where, int stage = 1)
 	{
-		//生成带限阶跃
-		float p1 = -1.0 + Poly4thOver1(2.0f - where);
-		float p2 = -1.0 + Poly4thUnder1(1.0f - where);
-		float p3 = +1.0 - Poly4thUnder1(where);
-		float p4 = +1.0 - Poly4thOver1(where + 1.0f);
+		float p1 = 0.0, p2 = 0.0, p3 = 0.0, p4 = 0.0;
 
-		//减去理想阶跃得到残差
-		p1 = p1 - 0.0;
-		p2 = p2 - 0.0;
-		p3 = p3 - 1.0;
-		p4 = p4 - 1.0;
-		p1 *= amp;
-		p2 *= amp;
-		p3 *= amp;
-		p4 *= amp;
+		if (stage == 1)
+		{
+			p1 = -1.0 + Poly4thOver1(2.0f - where);
+			p2 = -1.0 + Poly4thUnder1(1.0f - where);
+			p3 = -Poly4thUnder1(where);
+			p4 = -Poly4thOver1(where + 1.0f);
+		}
+		else if (stage == 2)
+		{
+			float x = where;
+			p1 = x * (-1.0f + x * x * (41.0f / 144.0f + x * (-15.0f / 128.0f + x * (77.0f / 3840.0f))));
+			p2 = -9359.0f / 11520.0f + x * (-395.0f / 768.0f + x * (45.0f / 128.0f + x * (49.0f / 384.0f + x * (-13.0f / 768.0f + x * (-17.0f / 1280.0f)))));
+			p3 = -79.0f / 90.0f + x * (7.0f / 16.0f + x * (1.0f / 2.0f + x * (-23.0f / 96.0f + x * (-1.0f / 12.0f + x * (47.0f / 1280.0f)))));
+			p4 = -2609.0f / 11520.0f + x * (437.0f / 768.0f + x * (-45.0f / 128.0f + x * (-109.0f / 1152.0f + x * (77.0f / 768.0f + x * (13.0f / 3840.0f)))));
+		}
+
 		//叠加残差
-		z1 += p1;
-		z2 += p2;
-		z3 += p3;
-		z4 += p4;
+		z1 = z1 + p1 * amp;
+		z2 = z2 + p2 * amp;
+		z3 = z3 + p3 * amp;
+		z4 = z4 + p4 * amp;
 
-		dcc.Add(p1 + p2 + p3 + p4, where);
+		dcc.Add((p1 + p2 + p3 + p4) * amp, where);
 	}
 	void Step()
 	{
