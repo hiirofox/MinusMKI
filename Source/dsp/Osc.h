@@ -601,15 +601,15 @@ namespace MinusMKI
 				s1_t2 = s1_t - 1.0f;
 				s1_amp2 = -1.0f;
 				s1_where2 = s1_t2 / s1_dt;
-				if (s1_where2 < 0.0f) s1_where2 = 0.0f;
-				if (s1_where2 > 1.0f) s1_where2 = 1.0f;
+				//if (s1_where2 < 0.0f) s1_where2 = 0.0f;//dt∈[-1,1]
+				//if (s1_where2 > 1.0f) s1_where2 = 1.0f;//dt∈[-1,1]
 				s1_isWrap = 1;
 			}
 			else if (s1_t < 0.0f) {
 				s1_t2 = s1_t;
 				s1_where2 = s1_t2 / s1_dt;
-				if (s1_where2 < 0.0f) s1_where2 = 0.0f;
-				if (s1_where2 > 1.0f) s1_where2 = 1.0f;
+				//if (s1_where2 < 0.0f) s1_where2 = 0.0f;//dt∈[-1,1]
+				//if (s1_where2 > 1.0f) s1_where2 = 1.0f;//dt∈[-1,1]
 				s1_amp2 = 1.0f;
 				s1_t2 += 1.0f;
 				s1_isWrap = 1;
@@ -624,15 +624,15 @@ namespace MinusMKI
 				s2_t2 = s2_t - 1.0f;
 				s2_amp2 = -1.0f;
 				s2_where2 = s2_t2 / s2_dt;
-				if (s2_where2 < 0.0f) s2_where2 = 0.0f;
-				if (s2_where2 > 1.0f) s2_where2 = 1.0f;
+				//if (s2_where2 < 0.0f) s2_where2 = 0.0f;//dt∈[-1,1]
+				//if (s2_where2 > 1.0f) s2_where2 = 1.0f;//dt∈[-1,1]
 				s2_isWrap = 1;
 			}
 			else if (s2_t < 0.0f) {
 				s2_t2 = s2_t;
 				s2_where2 = s2_t2 / s2_dt;
-				if (s2_where2 < 0.0f) s2_where2 = 0.0f;
-				if (s2_where2 > 1.0f) s2_where2 = 1.0f;
+				//if (s2_where2 < 0.0f) s2_where2 = 0.0f;//dt∈[-1,1]
+				//if (s2_where2 > 1.0f) s2_where2 = 1.0f;//dt∈[-1,1]
 				s2_amp2 = 1.0f;
 				s2_t2 += 1.0f;
 				s2_isWrap = 1;
@@ -787,9 +787,10 @@ namespace MinusMKI
 					if (p_start < t_duty && p_end >= t_duty) {
 						t_blep.Add(-t_slope_diff * fabsf(dt), (p_end - t_duty) / dt, 2);
 					}
-					else if (p_start < 1.0f + t_duty && p_end >= 1.0f + t_duty) {
+					
+					/*else if (p_start < 1.0f + t_duty && p_end >= 1.0f + t_duty) {
 						t_blep.Add(-t_slope_diff * fabsf(dt), (p_end - (1.0f + t_duty)) / dt, 2);
-					}
+					}*/
 				}
 				else if (dt < 0.0f) {
 					if (p_end < 0.0f) {
@@ -799,9 +800,9 @@ namespace MinusMKI
 					if (p_start > t_duty && p_end <= t_duty) {
 						t_blep.Add(-t_slope_diff * fabsf(dt), (p_end - t_duty) / dt, 2);
 					}
-					else if (p_start > t_duty - 1.0f && p_end <= t_duty - 1.0f) {
+					/*else if (p_start > t_duty - 1.0f && p_end <= t_duty - 1.0f) {
 						t_blep.Add(-t_slope_diff * fabsf(dt), (p_end - (t_duty - 1.0f)) / dt, 2);
-					}
+					}*/
 				}
 
 				t_isWrap = 0;
@@ -1219,9 +1220,14 @@ namespace MinusMKI
 		// 快速的相位取模运算，替代 std::floor
 		inline float FastWrap(float p) const
 		{
+			/*
 			int ip = static_cast<int>(p);
 			p -= ip;
 			if (p < 0.0f) p += 1.0f;
+			return p;
+			*/
+			if (p >= 1.0f) p -= 1.0f;
+			else if (p < 0.0f) p += 1.0f;
 			return p;
 		}
 
@@ -1299,8 +1305,8 @@ namespace MinusMKI
 		inline void Step(float _dt) final override
 		{
 			dt = _dt;
-			if (dt > 0.999f) dt = 0.999f;
-			else if (dt < -0.999f) dt = -0.999f;
+			if (dt > 0.499f) dt = 0.499f;
+			else if (dt < -0.499f) dt = -0.499f;
 
 			// 预计算绝对值和倒数，避免在后续逻辑和 Get() 中反复除以 dt
 			abs_dt = std::fabs(dt);
@@ -1406,9 +1412,13 @@ namespace MinusMKI
 				s1_blep.Add(diff, syncTime);
 				s1_t = syncPhase;
 				if (s1_t >= 1.0f) {
+					/*
 					int amp = static_cast<int>(s1_t);
 					s1_t -= amp;
 					s1_blep.Add(-amp, s1_t * inv_dt);
+					*/
+					s1_t -= 1.0f;
+					s1_blep.Add(-1.0f, s1_t * inv_dt); // 直接写死 -1.0f
 				}
 				else if (s1_t < 0.0f) {
 					float overshoot = s1_t;
