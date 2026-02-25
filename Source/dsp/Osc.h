@@ -1740,21 +1740,18 @@ namespace MinusMKI
 			//²¹³¥²¨ÐÎÔ¾±ä
 			float val_before = GetNaiveTri(phase_before);
 			float val_after = GetNaiveTri(phase_after);
-			if (fabsf(val_after - val_before) > 1e-6f) {
+			if (fabsf(val_after - val_before) > 1e-6f)
 				triblep.Add(val_after - val_before, dstWhere, 1);
-			}
 			float pwm_before = GetNaivePwm(phase_before);
 			float pwm_after = GetNaivePwm(phase_after);
-			if (fabsf(pwm_after - pwm_before) > 1e-6f) {
+			if (fabsf(pwm_after - pwm_before) > 1e-6f)
 				pwmblep.Add(pwm_after - pwm_before, dstWhere, 1);
-			}
 
 			//²¹³¥Ð±ÂÊÔ¾±ä
 			float slope_before = GetNaiveTriSlope(phase_before) * dt;
 			float slope_after = GetNaiveTriSlope(phase_after) * dt;
-			if (fabsf(slope_after - slope_before) > 1e-6f) {
+			if (fabsf(slope_after - slope_before) > 1e-6f)
 				triblep.Add(slope_after - slope_before, dstWhere, 2);
-			}
 
 			float p_start = phase_after;
 			float p_end = phase_after + dstWhere * dt;
@@ -1821,6 +1818,8 @@ namespace MinusMKI
 			float imp = pwm - lastpwm;
 			lastpwm = pwm;
 
+			pwm -= 2.0 * duty - 1.0;
+
 			return imp * mix1 + pwm * mix2 + tri * mix3;
 		}
 	};
@@ -1875,7 +1874,7 @@ namespace MinusMKI
 	class UnisonTest2
 	{
 	private:
-		constexpr static int UnisonNum = 300;
+		constexpr static int UnisonNum = 1;
 		OscTest wav[UnisonNum];
 		float unitvol = 1.0 / sqrtf(UnisonNum);
 	public:

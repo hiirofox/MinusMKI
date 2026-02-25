@@ -158,7 +158,7 @@ namespace TableBlepCoeffs
 
 		if (usingMinPhase)
 		{
-			int cepn = n * 4;
+			int cepn = n * 8;
 			std::vector<std::complex<double>> x2(cepn, 0);
 			std::vector<std::complex<double>> cep(cepn, 0);
 			for (int i = 0; i < n; ++i) x2[i] = x[i];
