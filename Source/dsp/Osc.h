@@ -1549,186 +1549,279 @@ namespace MinusMKI
 		}
 	};
 
-
-	/*
-	float CrossDetector(float x, float dx, float threshold)
-		{
-			if (dx > 0.0f)
-			{
-				float C = std::floor(x - threshold) + threshold;
-				if (C > x - dx) return (x - C) / dx;
-			}
-			else if (dx < 0.0f)
-			{
-				float C = std::ceil(x - threshold) + threshold;
-				if (C < x - dx) return (x - C) / dx;
-			}
-			return -1.0f;
-		}
-	*/
-	class WaveformOsc6 final :public Oscillator
+	class WaveformOsc6 final : public Oscillator
 	{
 	private:
 		Blep triblep;
-		Blep pwmblep;
-		Blep saw1blep;
-		Blep saw2blep;
+		Blep pwmblep; // 用于处理PWM波的值跳变
 
-		float t = 0, lastt = 0;
+		float t = 0;
 		float dt = 0;
+		float t_step_start = 0;
 
-		float duty = 0.5;
-		float where1 = 0.0, where2 = 0.0;
-		float slope1 = 0.0, slope2 = 0.0;
-		int isWrap1 = 0, isWrap2 = 0;
+		int isWrap = 0;
+		float t2 = 0, where2 = 0;
 
-		float GetNaiveTri(float x)
+		int isDutyCross = 0;
+		float dutyWhere = 0;
+
+		float startPhase = 0;
+		float duty = 0.5f;
+		float slope_diff = 8.0f;
+
+		float form = 1.0;
+		float naiveDuty = 0.5, naiveSlopeDiff = 0.0;
+		float mix1 = 0, mix2 = 1.0, mix3 = 0;
+
+		inline float GetNaiveTri(float p) const
 		{
-			x -= floorf(x);
-			return x < duty ? x / duty : (1.0 - x) / (1.0 - duty);
+			//if (p < 0 || p >= 1.0)assert(0);
+			//p -= std::floor(p);
+			if (p < duty)
+				return -1.0f + 2.0f * p / duty;
+			else
+				return 1.0f - 2.0f * (p - duty) / (1.0f - duty);
 		}
-		float GetNaivePwm(float x)
+
+		inline float GetNaiveTriSlope(float p) const
 		{
-			x -= floorf(x);
-			return x < duty ? 1.0 : 0.0;
+			//if (p < 0 || p >= 1.0)assert(0);
+			//p -= std::floor(p);
+			if (p < duty) return 2.0f / duty;
+			else return -2.0f / (1.0f - duty);
+		}
+
+		// 新增：获取原生 PWM 状态 (这里假设使用 -1.0 到 1.0 的双极性输出，如果是 0.0 到 1.0，只需改为 1.0f : 0.0f)
+		inline float GetNaivePwm(float p) const
+		{
+			//if (p < 0 || p >= 1.0)assert(0);
+			//p -= std::floor(p);
+			return p < duty ? 1.0f : -1.0f;
 		}
 
 	public:
-		inline void SetStartPhase(float phi)
+		WaveformOsc6()
 		{
-			t = phi;
+			SetPWM(0.5f);
 		}
-		float naiveDuty = 0.5;
-		void SetPWM(float d)
+
+		inline void SetPWM(float d)
 		{
 			naiveDuty = d;
+			naiveSlopeDiff = 2.0f / (naiveDuty * (1.0f - naiveDuty));
 		}
-		inline bool IsWrapThisSample() const final override
+
+		inline void SetStartPhase(float phi)
 		{
-			return isWrap1;
+			startPhase = phi;
 		}
-		inline float GetWrapWhere() const  final override
+
+		inline void SetWaveform(float form)
 		{
-			return where1;
+			this->form = form;
+			if (form <= 1.0f)
+			{
+				mix1 = 1.0f - form;
+				mix2 = form;
+			}
+			else
+			{
+				mix2 = 2.0f - form;
+				mix3 = form - 1.0f;
+			}
 		}
-		inline float GetDT() const final override
+
+		inline void SetPhase(float phi, float where = 0)
 		{
-			return dt;
+			float newt = phi;
+			float val_diff = GetNaiveTri(newt) - GetNaiveTri(t);
+			float slope_d = (GetNaiveTriSlope(newt) - GetNaiveTriSlope(t)) * dt;
+			// 新增：处理手动相位重置时的 PWM 跳变
+			float pwm_diff = GetNaivePwm(newt) - GetNaivePwm(t);
+
+			if (fabsf(val_diff) > 1e-6f) triblep.Add(val_diff, where, 1);
+			if (fabsf(slope_d) > 1e-6f) triblep.Add(slope_d, where, 2);
+			if (fabsf(pwm_diff) > 1e-6f) pwmblep.Add(pwm_diff, where, 1); // Mode 1: BLEP
+
+			t = newt;
 		}
+
+		inline bool IsWrapThisSample() const final override { return isWrap; }
+		inline float GetWrapWhere() const final override { return where2; }
+		inline float GetDT() const final override { return dt; }
+
 		inline void Step(float dt1) final override
 		{
 			dt = dt1;
-			if (dt > 0.499)dt = 0.499;
-			if (dt < -0.499)dt = -0.499;
+			if (dt > 0.499f) dt = 0.499f;
+			if (dt < -0.499f) dt = -0.499f;
 
 			duty = naiveDuty;
-			float absdt = fabsf(dt);
-			if (duty < absdt)duty = absdt;
-			if (1.0 - duty < absdt)duty = 1.0 - absdt;
+			float dtfix = fabsf(dt);
+			if (duty < dtfix) { duty = dtfix; slope_diff = 2.0f / (duty * (1.0f - duty)); }
+			else if (1.0 - duty < dtfix) { duty = 1.0 - dtfix; slope_diff = 2.0f / (duty * (1.0f - duty)); }
+			else slope_diff = naiveSlopeDiff;
 
-			lastt = t;
+			t_step_start = t;
 			t += dt;
 
-			isWrap1 = 0;
-			isWrap2 = 0;
-			if (t >= 1.0)
+			isWrap = 0;
+			isDutyCross = 0;
+
+			if (dt > 0.0f)
 			{
-				isWrap1 = 1;
-				where1 = (t - 1.0) / dt;
-				slope1 = +fabsf(dt) / (duty * (1.0 - duty));
+				if (t >= 1.0f) {
+					isWrap = 1;
+					t2 = t - 1.0f;
+					where2 = t2 / dt;
+				}
+				if (t_step_start < duty && t >= duty) {
+					isDutyCross = 1;
+					dutyWhere = (t - duty) / dt;
+				}
+				//else if (t_step_start < 1.0f + duty && t >= 1.0f + duty) {
+				//	isDutyCross = 1;
+				//	dutyWhere = (t - (1.0f + duty)) / dt;
+				//}
+
 			}
-			if (t < 0.0)
+			else if (dt < 0.0f)
 			{
-				isWrap1 = 1;
-				where1 = t / dt;
-				slope1 = +fabsf(dt) / (duty * (1.0 - duty));
-			}
-			if (dt >= 0.0 && lastt < duty && t >= duty)
-			{
-				isWrap2 = 1;
-				where2 = (t - duty) / dt;
-				slope2 = -fabsf(dt) / (duty * (1.0 - duty));
-			}
-			if (dt < 0.0 && t < duty && lastt >= duty)
-			{
-				isWrap2 = 1;
-				where2 = (t - duty) / dt;
-				slope2 = -fabsf(dt) / (duty * (1.0 - duty));
+				if (t < 0.0f) {
+					isWrap = 1;
+					t2 = t + 1.0f;
+					where2 = t / dt;
+				}
+				if (t_step_start > duty && t <= duty) {
+					isDutyCross = 1;
+					dutyWhere = (t - duty) / dt;
+				}
+				//else if (t_step_start > duty - 1.0f && t <= duty - 1.0f) {
+				//	isDutyCross = 1;
+				//	dutyWhere = (t - (duty - 1.0f)) / dt;
+				//}
 			}
 		}
-		inline void DoWrap1()
+
+		inline void ApplyWrap()
 		{
-			triblep.Add(slope1, where1, BLAMP_MODE);
-			pwmblep.Add(-1.0, where1, BLEP_MODE);
+			t = t2;
+			triblep.Add(slope_diff * fabsf(dt), where2, 2);
+			float pwmJump = (dt > 0.0f) ? 2.0f : -2.0f;
+			pwmblep.Add(pwmJump, where2, 1);
 		}
-		inline void DoWrap2()
+
+		inline void ApplyDutyCross()
 		{
-			triblep.Add(slope2, where2, BLAMP_MODE);
-			pwmblep.Add(1.0, where2, BLEP_MODE);
+			//if (dutyWhere < 0.0 || dutyWhere >= 1.0)assert(0);
+			//if (dutyWhere < 0.0f) dutyWhere = 0.0f;
+			//if (dutyWhere > 1.0f) dutyWhere = 1.0f;
+			triblep.Add(-slope_diff * fabsf(dt), dutyWhere, 2);
+			float pwmJump = (dt > 0.0f) ? -2.0f : 2.0f;
+			pwmblep.Add(pwmJump, dutyWhere, 1);
 		}
+
 		inline void DoSync(float dstWhere)
 		{
-			if (isWrap1 && where1 >= dstWhere) DoWrap1();
-			if (isWrap2 && where2 >= dstWhere) DoWrap2();
-			float globalt = dstWhere * dt;//sync之后的时间
-			float localt = t - globalt;
-			globalt -= floorf(globalt);//可能wrap时也要Add blep/blamp
-			localt -= floorf(localt);
-			//补偿波形跳变
-			float tridiff = GetNaiveTri(globalt) - GetNaiveTri(localt);
-			float pwmdiff = GetNaivePwm(globalt) - GetNaivePwm(localt);
-			triblep.Add(tridiff, dstWhere, BLEP_MODE);
-			pwmblep.Add(pwmdiff, dstWhere, BLEP_MODE);
+			if (isWrap && where2 > dstWhere) {
+				ApplyWrap();
+				isWrap = 0;
+			}
+			if (isDutyCross && dutyWhere > dstWhere) {
+				ApplyDutyCross();
+				isDutyCross = 0;
+			}
 
-			lastt = 0.0;
-			t = dstWhere * dt;
-			if (t >= 1.0)
-			{
-				where1 = (t - 1.0) / dt;
-				slope1 = +fabsf(dt) / (duty * (1.0 - duty));
-				DoWrap1();
+			float phase_before = t_step_start + dt * (1.0f - dstWhere);
+			float phase_after = startPhase;
+			if (phase_before >= 1.0)phase_before -= 1.0;
+			if (phase_before < 0.0)phase_before += 1.0;
+
+			//补偿波形跃变
+			float val_before = GetNaiveTri(phase_before);
+			float val_after = GetNaiveTri(phase_after);
+			if (fabsf(val_after - val_before) > 1e-6f) {
+				triblep.Add(val_after - val_before, dstWhere, 1);
 			}
-			if (t < 0.0)
-			{
-				where1 = t / dt;
-				slope1 = +fabsf(dt) / (duty * (1.0 - duty));
-				DoWrap1();
+			float pwm_before = GetNaivePwm(phase_before);
+			float pwm_after = GetNaivePwm(phase_after);
+			if (fabsf(pwm_after - pwm_before) > 1e-6f) {
+				pwmblep.Add(pwm_after - pwm_before, dstWhere, 1);
 			}
-			if (dt >= 0.0 && lastt < duty && t >= duty)
-			{
-				where2 = (t - duty) / dt;
-				slope2 = -fabsf(dt) / (duty * (1.0 - duty));
-				DoWrap2();
+
+			//补偿斜率跃变
+			float slope_before = GetNaiveTriSlope(phase_before) * dt;
+			float slope_after = GetNaiveTriSlope(phase_after) * dt;
+			if (fabsf(slope_after - slope_before) > 1e-6f) {
+				triblep.Add(slope_after - slope_before, dstWhere, 2);
 			}
-			if (dt < 0.0 && t < duty && lastt >= duty)
-			{
-				where2 = (t - duty) / dt;
-				slope2 = -fabsf(dt) / (duty * (1.0 - duty));
-				DoWrap2();
+
+			float p_start = phase_after;
+			float p_end = phase_after + dstWhere * dt;
+			t = p_end;
+
+			//处理从0到sync走过的时间内，发生的wrap
+			if (dt > 0.0f) {
+				if (p_end >= 1.0f) {
+					t -= 1.0f;
+					triblep.Add(slope_diff * fabsf(dt), (p_end - 1.0f) / dt, 2);
+					pwmblep.Add(2.0f, (p_end - 1.0f) / dt, 1);
+				}
+				if (p_start < duty && p_end >= duty) {
+					triblep.Add(-slope_diff * fabsf(dt), (p_end - duty) / dt, 2);
+					pwmblep.Add(-2.0f, (p_end - duty) / dt, 1);
+				}
+				//else if (p_start < 1.0f + duty && p_end >= 1.0f + duty) {
+				//	blep.Add(-slope_diff * fabsf(dt), (p_end - (1.0f + duty)) / dt, 2);
+				//	pwmblep.Add(-2.0f, (p_end - (1.0f + duty)) / dt, 1); 
+				//}
+
 			}
+			else if (dt < 0.0f) {
+				if (p_end < 0.0f) {
+					t += 1.0f;
+					triblep.Add(slope_diff * fabsf(dt), (p_end - 0.0f) / dt, 2);
+					pwmblep.Add(-2.0f, (p_end - 0.0f) / dt, 1);
+				}
+				if (p_start > duty && p_end <= duty) {
+					triblep.Add(-slope_diff * fabsf(dt), (p_end - duty) / dt, 2);
+					pwmblep.Add(2.0f, (p_end - duty) / dt, 1);
+				}
+				//else if (p_start > duty - 1.0f && p_end <= duty - 1.0f) {
+				//	blep.Add(-slope_diff * fabsf(dt), (p_end - (duty - 1.0f)) / dt, 2);
+				//	pwmblep.Add(2.0f, (p_end - (duty - 1.0f)) / dt, 1); 
+				//}
+			}
+
+			isWrap = 0;
+			isDutyCross = 0;
 		}
+
+		float lastpwm = 0;
 		float Get() final override
 		{
 			bool isSync = syncDst && syncDst->IsWrapThisSample();
 			float syncTime = isSync ? syncDst->GetWrapWhere() : -1.0f;
+
 			if (isSync)
 			{
 				DoSync(syncTime);
 			}
 			else
 			{
-				if (isWrap1)DoWrap1();
-				if (isWrap2)DoWrap2();
+				if (isWrap) ApplyWrap();
+				if (isDutyCross) ApplyDutyCross();
 			}
-
-			t -= floorf(t);
 
 			triblep.Step();
 			pwmblep.Step();
 
-			float tri = GetNaiveTri(t) + triblep.Get();
 			float pwm = GetNaivePwm(t) + pwmblep.Get();
-			return pwm * 2.0 - 1.0;
+			float tri = GetNaiveTri(t) + triblep.Get();
+			float imp = pwm - lastpwm;
+			lastpwm = pwm;
+
+			return imp * mix1 + pwm * mix2 + tri * mix3;
 		}
 	};
 
@@ -1748,16 +1841,16 @@ namespace MinusMKI
 			this->fb = fb * 0.01;
 			this->duty = pwm;
 			osc1.SetPWM(duty);
-			//osc1.SetWaveform(form);
+			osc1.SetWaveform(form);
 
 			osc2.SyncTo(osc1);
 			osc2.SetPWM(duty);
-			//osc2.SetWaveform(form);
+			osc2.SetWaveform(form);
 		}
 		float ProcessSample()
 		{
-			osc1.Step(dt1 + fb * fbv);
-			osc2.Step(dt2 + fb * fbv);
+			osc1.Step(-dt1 + fb * fbv);
+			osc2.Step(-dt2 + fb * fbv);
 			float v1 = osc1.Get();
 			float v2 = osc2.Get();
 			fbv = v2;
@@ -1782,7 +1875,7 @@ namespace MinusMKI
 	class UnisonTest2
 	{
 	private:
-		constexpr static int UnisonNum = 1;
+		constexpr static int UnisonNum = 300;
 		OscTest wav[UnisonNum];
 		float unitvol = 1.0 / sqrtf(UnisonNum);
 	public:
