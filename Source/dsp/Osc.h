@@ -429,7 +429,7 @@ namespace MinusMKI
 		{
 			Oscillator::UnregSync();
 			saw1.UnregSync();
-			saw2.UnregSync();
+			saw2.SyncTo(saw1);
 			tri.UnregSync();
 		}
 
@@ -1571,6 +1571,8 @@ namespace MinusMKI
 	private:
 		Blep triblep;
 		Blep pwmblep;
+		Blep saw1blep;
+		Blep saw2blep;
 
 		float t = 0, lastt = 0;
 		float dt = 0;
@@ -1582,10 +1584,12 @@ namespace MinusMKI
 
 		float GetNaiveTri(float x)
 		{
+			x -= floorf(x);
 			return x < duty ? x / duty : (1.0 - x) / (1.0 - duty);
 		}
 		float GetNaivePwm(float x)
 		{
+			x -= floorf(x);
 			return x < duty ? 1.0 : 0.0;
 		}
 
@@ -1668,26 +1672,40 @@ namespace MinusMKI
 			if (isWrap2 && where2 >= dstWhere) DoWrap2();
 			float globalt = dstWhere * dt;//sync之后的时间
 			float localt = t - globalt;
-			globalt -= floorf(globalt);
+			globalt -= floorf(globalt);//可能wrap时也要Add blep/blamp
 			localt -= floorf(localt);
 			//补偿波形跳变
-			float tridiff = GetNaiveTri(0) - GetNaiveTri(localt);
-			float pwmdiff = GetNaivePwm(0) - GetNaivePwm(localt);
+			float tridiff = GetNaiveTri(globalt) - GetNaiveTri(localt);
+			float pwmdiff = GetNaivePwm(globalt) - GetNaivePwm(localt);
 			triblep.Add(tridiff, dstWhere, BLEP_MODE);
 			pwmblep.Add(pwmdiff, dstWhere, BLEP_MODE);
 
-			//补偿三角波斜率跳变
-			bool globalRegion = globalt >= duty;
-			bool localRegion = localt >= duty;
-			if (globalRegion != localRegion)//处在不同区域，则说明斜率发生跳变
+			lastt = 0.0;
+			t = dstWhere * dt;
+			if (t >= 1.0)
 			{
-				float slope = fabsf(dt) / (duty * (1.0 - duty));
-				if (localRegion) slope = -slope;
-				triblep.Add(slope, dstWhere, BLAMP_MODE);
+				where1 = (t - 1.0) / dt;
+				slope1 = +fabsf(dt) / (duty * (1.0 - duty));
+				DoWrap1();
 			}
-			t = globalt;
-			//可能还需补偿global t跨越过的状态(至少是duty那一次blamp)
-			//assert(t < duty);
+			if (t < 0.0)
+			{
+				where1 = t / dt;
+				slope1 = +fabsf(dt) / (duty * (1.0 - duty));
+				DoWrap1();
+			}
+			if (dt >= 0.0 && lastt < duty && t >= duty)
+			{
+				where2 = (t - duty) / dt;
+				slope2 = -fabsf(dt) / (duty * (1.0 - duty));
+				DoWrap2();
+			}
+			if (dt < 0.0 && t < duty && lastt >= duty)
+			{
+				where2 = (t - duty) / dt;
+				slope2 = -fabsf(dt) / (duty * (1.0 - duty));
+				DoWrap2();
+			}
 		}
 		float Get() final override
 		{
@@ -1710,7 +1728,7 @@ namespace MinusMKI
 
 			float tri = GetNaiveTri(t) + triblep.Get();
 			float pwm = GetNaivePwm(t) + pwmblep.Get();
-			return tri * 2.0 - 1.0;
+			return pwm * 2.0 - 1.0;
 		}
 	};
 
@@ -1738,8 +1756,8 @@ namespace MinusMKI
 		}
 		float ProcessSample()
 		{
-			osc1.Step(-dt1 + fb * fbv);
-			osc2.Step(-dt2 + fb * fbv);
+			osc1.Step(dt1 + fb * fbv);
+			osc2.Step(dt2 + fb * fbv);
 			float v1 = osc1.Get();
 			float v2 = osc2.Get();
 			fbv = v2;
