@@ -1,5 +1,7 @@
 #pragma once
 
+#include <bit>
+#include <type_traits> 
 #include "IIRBlep.h"
 
 namespace MinusMKI
@@ -12,8 +14,14 @@ namespace MinusMKI
 	private:
 		IIRBlep2::IIRBlep blit;//只使用其blit功能
 		float magtable[TableWidth];
+		float intMagtable[TableWidth * 2];
+		int startPos[TableWidth * 2];
 		float t = 0;
 	public:
+		int ctrz(int x)
+		{
+			return log2f(x);
+		}
 		WaveTable()
 		{
 			for (int i = 0; i < TableWidth; ++i)
@@ -21,27 +29,65 @@ namespace MinusMKI
 				float x = (float)i / (TableWidth - 1);
 				magtable[i] = x * 2.0 - 1.0;
 			}
+
+			int n = ctrz(TableWidth);
+			int prevPos = 0;
+			int pos = TableWidth;
+			int len = TableWidth;
+			const float avge = 1.0 / sqrtf(2.0);
+			for (int i = 0; i < TableWidth; ++i)
+			{
+				intMagtable[i] = magtable[i];
+				startPos[i] = 0;
+			}
+			for (int m = 0; m < n; ++m)
+			{
+				int nextLen = len >> 1;
+				int curPos = pos;
+				for (int i = 0; i < nextLen; ++i)
+				{
+					float a = intMagtable[prevPos + i * 2];
+					float b = intMagtable[prevPos + i * 2 + 1];
+					intMagtable[curPos + i] = (a + b) * avge;
+					startPos[curPos + i] = curPos;
+				}
+				prevPos = curPos;
+				pos += nextLen;
+				len = nextLen;
+			}
+			if (pos < TableWidth * 2)
+			{
+				intMagtable[pos] = intMagtable[prevPos];
+				startPos[pos] = prevPos;
+			}
 		}
 		float ProcessSample(float dt)
 		{
 			if (dt > 0.5)dt = 0.5;
-			dt *= TableWidth;
-			float nextt = t + dt;
-			int numpass = (int)nextt - (int)t;
-			for (int i = 0, pos = t + 1.0; i < numpass; ++i, ++pos)
+			int n = ctrz(dt * TableWidth) + 1;
+			float* selectedMagtable =
+				intMagtable + (n == 0 ? 0 : TableWidth * 2 - (TableWidth >> (n - 1)));
+			int selectedTableWidth = TableWidth >> n;
+
+			float ut = t * selectedTableWidth;//TableWidth语境下的t
+			float udt = dt * selectedTableWidth;
+			int numpass = (int)(ut + udt) - (int)ut;
+			for (int i = 0, pos = ut + 1.0; i < numpass; ++i, ++pos)
 			{
-				float where = ((float)pos - t) / dt;
-				float mag = magtable[pos % TableWidth];
+				float where = ((float)pos - ut) / udt;
+				float mag = selectedMagtable[pos % selectedTableWidth];
 				where = where > 1.0 ? 1.0 : where;
 				where = where < 0.0 ? 0.0 : where;
 				blit.Add(mag, 1.0 - where, 0);
 			}
-			t = nextt;
-			if (t >= TableWidth)t -= TableWidth;
+
+			t += dt;
+			if (t >= 1.0)t -= 1.0;
 			blit.Step();
 			return blit.Get();
 		}
 	};
+
 	class WaveTableOscTest
 	{
 	private:
