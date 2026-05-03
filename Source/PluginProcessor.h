@@ -10,6 +10,7 @@
 
 #include <JuceHeader.h>
 #include "dsp/Osc.h"
+#include "dsp/wt.h"
 
 //==============================================================================
 /**
@@ -69,7 +70,7 @@ private:
 	juce::AudioProcessorValueTreeState Params{ *this, nullptr, "Parameters", createParameterLayout() };
 
 	float freq = 1.0;
-	MinusMKI::UnisonTest2 osc;
+	MinusMKI::WaveTableOscTest osc;
 
 	//==============================================================================
 	JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(LModelAudioProcessor)

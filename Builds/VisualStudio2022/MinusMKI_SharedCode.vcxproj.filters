@@ -3552,6 +3552,9 @@
     <ClInclude Include="..\..\Source\dsp\TableBlep.h">
       <Filter>MinusMKI\Source\dsp</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\Source\dsp\IIRBlep.h">
+      <Filter>MinusMKI\Source\dsp</Filter>
+    </ClInclude>
     <ClInclude Include="..\..\Source\dsp\TableAdaa.h">
       <Filter>MinusMKI\Source\dsp</Filter>
     </ClInclude>
@@ -3559,6 +3562,9 @@
       <Filter>MinusMKI\Source\dsp</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Source\dsp\Filter.h">
+      <Filter>MinusMKI\Source\dsp</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\dsp\wt.h">
       <Filter>MinusMKI\Source\dsp</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Source\ui\LM_slider.h">
