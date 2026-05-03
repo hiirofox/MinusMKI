@@ -101,7 +101,20 @@ public:
 	{
 		float p1 = 0.0, p2 = 0.0, p3 = 0.0, p4 = 0.0;
 		float x = where;
-		if (stage == 1)
+		if (stage == 0)
+		{
+			x = 1.0f - x;
+			const float xm1 = x - 1.0f;
+			const float xm2 = x - 2.0f;
+			const float xm3 = x - 3.0f;
+			const float x_xm1 = x * xm1;
+			const float xm2_xm3 = xm2 * xm3;
+			p1 = (-1.0f / 6.0f) * xm1 * xm2_xm3;
+			p2 = 0.5f * x * xm2_xm3;
+			p3 = -0.5f * x_xm1 * xm3;
+			p4 = (1.0f / 6.0f) * x_xm1 * xm2;
+		}
+		else if (stage == 1)
 		{
 			float x2 = x * x;
 			p1 = -1.0f + x2 * (-1.0f / 12.0f + x2 * (1.0f / 24.0f));
@@ -123,7 +136,7 @@ public:
 		z3 = z3 + p3 * amp;
 		z4 = z4 + p4 * amp;
 
-		dcc.Add((p1 + p2 + p3 + p4) * amp, where);
+		//dcc.Add((p1 + p2 + p3 + p4) * amp, where);
 	}
 	void Step()
 	{

@@ -3,6 +3,7 @@
 #include <bit>
 #include <type_traits> 
 #include "IIRBlep.h"
+#include "TableBlep.h"
 
 namespace MinusMKI
 {
@@ -12,7 +13,8 @@ namespace MinusMKI
 		constexpr static int TableWidth = 8192;
 		//constexpr static int TableHeight = 1;
 	private:
-		IIRBlep2::IIRBlep blit;//只使用其blit功能
+		//IIRBlep2::IIRBlep blit;//只使用其blit功能
+		Lagrange4thBlep blit;
 		float magtable[TableWidth];
 		float intMagtable[TableWidth * 2];
 		int startPos[TableWidth * 2];
@@ -31,10 +33,15 @@ namespace MinusMKI
 		WaveTable()
 		{
 			const float normv = 1.0 / TableWidth;
+			float intn = 0;
 			for (int i = 0; i < TableWidth; ++i)
 			{
 				float x = (float)i / (TableWidth - 1);
-				magtable[i] = (x * 2.0 - 1.0) * normv;
+				//magtable[i] = (x * 2.0 - 1.0) * normv;//saw
+				//magtable[i] = (x < 0.5 ? -1 : 1) * normv;//sqr
+				//magtable[i] = asinf(sinf(x * 2.0 * M_PI)) * normv;//tri
+				//magtable[i] = (intn += (float)(rand() % 10000) / 10000.0 * (rand() % 2 ? 1 : -1))* 0.1 * normv;
+				magtable[i] = sin(100.0 * powf(x, 0.045) * 2.0 * M_PI) * normv;
 			}
 
 			int n = ctrz(TableWidth);
@@ -71,8 +78,9 @@ namespace MinusMKI
 		}
 		float ProcessSample(float dt)
 		{
-			if (dt > 0.5)dt = 0.5;
-			int n = ctrz(dt * TableWidth) + 1;
+			if (dt > 0.499)dt = 0.499;
+			if (dt < 8.0 / 48000.0)dt = 8.0 / 48000.0;
+			int n = ctrz(dt * TableWidth);
 			float* selectedMagtable = intMagtable + (n == 0 ? 0 : TableWidth * 2 - (TableWidth >> (n - 1)));
 			int selectedTableWidth = TableWidth >> n;
 
