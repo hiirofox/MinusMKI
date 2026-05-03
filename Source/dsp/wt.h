@@ -14,7 +14,7 @@ namespace MinusMKI
 		//constexpr static int TableHeight = 1;
 	private:
 		//IIRBlep2::IIRBlep blit;//只使用其blit功能
-		Lagrange4thBlep blit;
+		Lagrange4thBlep blit;//其实也不错
 		float magtable[TableWidth];
 		float intMagtable[TableWidth * 2];
 		int startPos[TableWidth * 2];
