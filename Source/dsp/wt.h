@@ -41,7 +41,9 @@ namespace MinusMKI
 				//magtable[i] = (x < 0.5 ? -1 : 1) * normv;//sqr
 				//magtable[i] = asinf(sinf(x * 2.0 * M_PI)) * normv;//tri
 				//magtable[i] = (intn += (float)(rand() % 10000) / 10000.0 * (rand() % 2 ? 1 : -1))* 0.1 * normv;
-				magtable[i] = sin(100.0 * powf(x, 0.045) * 2.0 * M_PI) * normv;
+				//magtable[i] = sin(100.0 * powf(x, 0.045) * 2.0 * M_PI) * normv;//sin kick
+				//magtable[i] = asinf(sinf(100.0 * powf(x, 0.045) * 2.0 * M_PI)) * normv;//tri kick
+				magtable[i] = (sinf(100.0 * powf(x, 0.045) * 2.0 * M_PI) > 0 ? 1.0 : -1.0) * normv;//sqr kick
 			}
 
 			int n = ctrz(TableWidth);
@@ -78,28 +80,70 @@ namespace MinusMKI
 		}
 		float ProcessSample(float dt)
 		{
+			//dt = -dt;
 			if (dt > 0.499)dt = 0.499;
-			if (dt < 8.0 / 48000.0)dt = 8.0 / 48000.0;
-			int n = ctrz(dt * TableWidth);
-			float* selectedMagtable = intMagtable + (n == 0 ? 0 : TableWidth * 2 - (TableWidth >> (n - 1)));
-			int selectedTableWidth = TableWidth >> n;
+			if (dt < -0.499)dt = -0.499;
 
-			float ut = t * selectedTableWidth;//TableWidth语境下的t
-			float udt = dt * selectedTableWidth;
-			int numpass = (int)(ut + udt) - (int)ut;
-			for (int i = 0, pos = ut + 1.0; i < numpass; ++i, ++pos)
+			float absOneDivDt = fabsf(1.0 / dt);
+
+			if (fabsf(dt) < 2.0 / TableWidth)
 			{
-				float where = ((float)pos - ut) / udt;
-				float mag = selectedMagtable[pos % selectedTableWidth];
-				where = where > 1.0 ? 1.0 : where;
-				where = where < 0.0 ? 0.0 : where;
-				blit.Add(mag / dt, 1.0 - where, 0);
-			}
+				float posf = t * TableWidth;//TableWidth语境下的t
+				int pos1 = posf;
+				int pos2 = pos1 + 1;
+				float frac = posf - pos1;
 
-			t += dt;
-			if (t >= 1.0)t -= 1.0;
-			blit.Step();
-			return blit.Get();
+				if (pos1 < 0)pos1 += TableWidth;
+				if (pos2 < 0)pos2 += TableWidth;
+
+				float mag1 = magtable[pos1 % TableWidth];
+				float mag2 = magtable[pos2 % TableWidth];
+				float mag = mag1 + (mag2 - mag1) * frac;
+
+				t += dt;
+				if (t >= 1.0)t -= 1.0;
+				if (t < 0.0)t += 1.0;
+				blit.Step();
+				return mag * TableWidth + blit.Get();
+			}
+			else
+			{
+				int n = ctrz(abs(dt * TableWidth));
+				float* selectedMagtable = intMagtable + (n == 0 ? 0 : TableWidth * 2 - (TableWidth >> (n - 1)));
+				int selectedTableWidth = TableWidth >> n;
+
+				float ut = t * selectedTableWidth;//TableWidth语境下的t
+				float udt = dt * selectedTableWidth;
+				if (udt > 0.0)
+				{
+					int numpass = (int)(ut + udt) - (int)ut;
+					for (int i = 0, pos = ut + 1.0; i < numpass; ++i, ++pos)
+					{
+						float where = ((float)pos - ut) / udt;
+						float mag = selectedMagtable[pos % selectedTableWidth];
+						blit.Add(mag * absOneDivDt, 1.0 - where, 0);
+					}
+				}
+				else if (udt < 0.0)
+				{
+					int numpass = (int)ceilf(ut) - (int)ceilf(ut + udt);
+					for (int i = 0, pos = (int)ceilf(ut) - 1; i < numpass; ++i, --pos)
+					{
+						float where = ((float)pos - ut) / udt;
+						int ipos = pos % selectedTableWidth;
+						if (ipos < 0)ipos += selectedTableWidth;
+						float mag = selectedMagtable[ipos];
+						blit.Add(mag * absOneDivDt, 1.0 - where, 0);
+					}
+				}
+
+				t += dt;
+				if (t >= 1.0)t -= 1.0;
+				if (t < 0.0)t += 1.0;
+
+				blit.Step();
+				return blit.Get();
+			}
 		}
 	};
 
@@ -107,15 +151,17 @@ namespace MinusMKI
 	{
 	private:
 		WaveTable osc1;
-		float dt = 0;
+		float dt = 0, fb = 0;
 	public:
-		void SetParams(float freq, float sr = 48000)
+		void SetParams(float freq, float fb, float sr = 48000)
 		{
+			this->fb = fb;
 			dt = freq / sr;
 		}
+		float z = 0.0;
 		float ProcessSample()
 		{
-			return osc1.ProcessSample(dt);
+			return z = osc1.ProcessSample(dt + z * fb);
 		}
 		void ProcessBlock(float* outl, float* outr, int numSamples)
 		{

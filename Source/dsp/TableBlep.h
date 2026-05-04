@@ -103,14 +103,23 @@ public:
 		float x = where;
 		if (stage == 0)
 		{
-			float q = x * (x - 1.0f);         
-			float r = q * (1.0f / 6.0f);        
-			p1 = r * (x + 1.0f);       
+			float q = x * (x - 1.0f);
+			float r = q * (1.0f / 6.0f);
+			p1 = r * (x + 1.0f);
 			float r3 = r + r + r;
 			float p1_3 = p1 + p1 + p1;
 			p2 = x + r3 - p1_3;
 			p4 = r3 - p1;
 			p3 = 1.0f - p1 - p2 - p4;
+			/*
+			x = 1.0 - x;
+			const float x2 = x * x;
+			const float x3 = x2 * x;
+			p1 = -x3 * (1.0f / 6.0f) + x2 * 0.5f - x * (1.0f / 3.0f);
+			p2 = x3 * 0.5f - x2 - x * 0.5f + 1.0f;
+			p3 = -x3 * 0.5f + x2 * 0.5f + x;
+			p4 = x3 * (1.0f / 6.0f) - x * (1.0f / 6.0f);
+			*/
 		}
 		else if (stage == 1)
 		{
@@ -134,7 +143,7 @@ public:
 		z3 = z3 + p3 * amp;
 		z4 = z4 + p4 * amp;
 
-		dcc.Add((p1 + p2 + p3 + p4) * amp, where);
+		//dcc.Add((p1 + p2 + p3 + p4) * amp, where);
 	}
 	void Step()
 	{
@@ -143,11 +152,12 @@ public:
 		z2 = z3;
 		z3 = z4;
 		z4 = 0;
-		dcc.Step();
+		//dcc.Step();
 	}
 	float Get()
 	{
-		return v - dcc.Get();
+		//return v - dcc.Get();
+		return v;
 	}
 };
 
