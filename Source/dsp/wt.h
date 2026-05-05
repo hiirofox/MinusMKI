@@ -4,9 +4,11 @@
 #include <type_traits> 
 #include "IIRBlep.h"
 #include "TableBlep.h"
+#include "ds2x.h"
 
 namespace MinusMKI
 {
+
 	class WaveTable
 	{
 	public:
@@ -15,11 +17,11 @@ namespace MinusMKI
 	private:
 		//IIRBlep2::IIRBlep blit;//只使用其blit功能
 		Lagrange4thBlep blit;//其实也不错
+		DownSampler2x ds2x;
 		float magtable[TableWidth];
 		float intMagtable[TableWidth * 2];
 		int startPos[TableWidth * 2];
 		float t = 0;
-	public:
 		int ctrz(int x)
 		{
 			int n = 0;
@@ -30,6 +32,7 @@ namespace MinusMKI
 			}
 			return n;
 		}
+	public:
 		WaveTable()
 		{
 			const float normv = 1.0 / TableWidth;
@@ -60,12 +63,26 @@ namespace MinusMKI
 			{
 				int nextLen = len >> 1;
 				int curPos = pos;
-				const float avge = 1.0f / cosf(float(M_PI) / float(len));
+				//const float avge = 1.0f / cosf(float(M_PI) / float(len));
+				float cs = cosf(float(M_PI) / float(len));
+				const float avge = 1.0f / (cs * cs);
 				for (int i = 0; i < nextLen; ++i)
 				{
+					/*
 					float a = intMagtable[prevPos + i * 2];
 					float b = intMagtable[prevPos + i * 2 + 1];
 					intMagtable[curPos + i] = (a + b) * avge;
+					*/
+					int p0 = i * 2;
+					int pm = p0 - 1;
+					int pp = p0 + 1;
+					if (pm < 0)pm += len;
+					if (pp >= len)pp -= len;
+					float a = intMagtable[prevPos + p0];
+					float b = intMagtable[prevPos + pm];
+					float c = intMagtable[prevPos + pp];
+					intMagtable[curPos + i] = (a + (b + c) * 0.5f) * avge;
+
 					startPos[curPos + i] = curPos;
 				}
 				prevPos = curPos;
@@ -78,9 +95,8 @@ namespace MinusMKI
 				startPos[pos] = prevPos;
 			}
 		}
-		float ProcessSample(float dt)
+		float ProcessSampleHQ(float dt)
 		{
-			//dt = -dt;
 			if (dt > 0.499)dt = 0.499;
 			if (dt < -0.499)dt = -0.499;
 
@@ -109,10 +125,12 @@ namespace MinusMKI
 			else
 			{
 				int n = ctrz(abs(dt * TableWidth));
+				n -= 2; //用前2层表能有效减小跨表相位不连续
+				if (n < 0)n = 0;
 				float* selectedMagtable = intMagtable + (n == 0 ? 0 : TableWidth * 2 - (TableWidth >> (n - 1)));
 				int selectedTableWidth = TableWidth >> n;
 
-				float ut = t * selectedTableWidth;//TableWidth语境下的t
+				float ut = t * selectedTableWidth;
 				float udt = dt * selectedTableWidth;
 				if (udt > 0.0)
 				{
@@ -145,6 +163,43 @@ namespace MinusMKI
 				return blit.Get();
 			}
 		}
+
+		float ProcessSampleLQ(float dt)
+		{
+			if (dt > 0.499)dt = 0.499;
+			if (dt < -0.499)dt = -0.499;
+			dt *= 0.5;
+
+			int n = ctrz(abs(dt * TableWidth));
+			float* selectedMagtable = intMagtable + (n == 0 ? 0 : TableWidth * 2 - (TableWidth >> (n - 1)));
+			int selectedTableWidth = TableWidth >> n;
+
+			for (int i = 0; i < 2; ++i)
+			{
+
+				float posf = t * selectedTableWidth;//TableWidth语境下的t
+				int pos1 = posf;
+				int pos2 = pos1 + 1;
+				float frac = posf - pos1;
+
+				if (pos1 < 0)pos1 += selectedTableWidth;
+				if (pos2 < 0)pos2 += selectedTableWidth;
+
+				float mag1 = selectedMagtable[pos1 % selectedTableWidth];
+				float mag2 = selectedMagtable[pos2 % selectedTableWidth];
+				float mag = mag1 + (mag2 - mag1) * frac;
+
+				t += dt;
+				if (t >= 1.0)t -= 1.0;
+				if (t < 0.0)t += 1.0;
+
+				//return mag * selectedTableWidth;
+				ds2x.ProcessIn(mag);
+			}
+			return ds2x.GetProcessOut() * selectedTableWidth;
+		}
+		float ProcessSample(float dt) { return ProcessSampleLQ(dt); }
+		void SetStartPhase(float phase) { this->t = phase; }
 	};
 
 	class WaveTableOscTest
@@ -177,4 +232,50 @@ namespace MinusMKI
 		}
 	};
 
+	class WaveTableOscUnisonTest
+	{
+	private:
+		constexpr static int UnisonNum = 1;
+		WaveTable wav[UnisonNum];
+		float ftab[UnisonNum] = { 0 };
+		float unitvol = 1.0 / sqrtf(UnisonNum);
+	public:
+		WaveTableOscUnisonTest()
+		{
+			for (int i = 0; i < UnisonNum; ++i)
+			{
+				float randphase = (float)rand() / RAND_MAX;
+				wav[i].SetStartPhase(randphase);
+			}
+		}
+		void SetParams(float freq, float detune, float sr = 48000)
+		{
+			for (int i = 0; i < UnisonNum; ++i)
+			{
+				float f = freq * (1.0 + ((float)i / UnisonNum - 0.5) * detune * 0.05);
+				ftab[i] = f / sr;
+			}
+		}
+		void ProcessBlock(float* outl, float* outr, int numSamples)
+		{
+			for (int i = 0; i < numSamples; ++i)
+			{
+				float vl = ProcessSample();
+				float vr = vl;
+
+				outl[i] = vl / 8.0;
+				outr[i] = vr / 8.0;
+			}
+		}
+		inline float ProcessSample()
+		{
+			float sum = 0;
+			for (int i = 0; i < UnisonNum; ++i)
+			{
+				sum += wav[i].ProcessSample(ftab[i]);
+			}
+			sum *= unitvol;
+			return sum;
+		}
+	};
 }

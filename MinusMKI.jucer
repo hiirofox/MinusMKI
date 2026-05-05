@@ -14,6 +14,7 @@
         <FILE id="n64aXI" name="Osc.h" compile="0" resource="0" file="Source/dsp/Osc.h"/>
         <FILE id="n0qI4c" name="Filter.h" compile="0" resource="0" file="Source/dsp/Filter.h"/>
         <FILE id="CxOMQ5" name="wt.h" compile="0" resource="0" file="Source/dsp/wt.h"/>
+        <FILE id="DVJk8G" name="ds2x.h" compile="0" resource="0" file="Source/dsp/ds2x.h"/>
       </GROUP>
       <GROUP id="{F0E83B79-C7E3-715C-DB33-08BD7D3CCD14}" name="ui">
         <FILE id="CaKJLD" name="LM_slider.cpp" compile="1" resource="0" file="Source/ui/LM_slider.cpp"/>

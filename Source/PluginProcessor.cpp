@@ -183,7 +183,7 @@ void LModelAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
 	float p6 = *Params.getRawParameterValue("p6");
 	float freq = 440.0 * pow(2.0, pitch / 12.0);
 	//osc.SetParams(freq, sync * 10.0 + 1.0, pwm, form * 2, fb, detune, getSampleRate());
-	osc.SetParams(freq, fb * 0.001, getSampleRate());
+	osc.SetParams(freq, detune, getSampleRate());
 
 	osc.ProcessBlock(wavbufl, wavbufr, numSamples);
 }

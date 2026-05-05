@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cmath>
+/*
 namespace IIRBlepCoeffs
 {
 	constexpr static float Ts = 2.08333333333e-05f;
@@ -69,6 +70,62 @@ namespace IIRBlepCoeffs
 	};
 
 	const float blitDirectGain = 2.33753844646e-11;
+	const float blepDirectGain = 0;
+	const float blampDirectGain = 0;
+}*/
+
+namespace IIRBlepCoeffs//“≤πª”√¡À
+{
+	constexpr static float Ts = 2.08333333333e-05f;
+	constexpr static int NumTwoPoles = 3;
+	constexpr static int NumOnePoles = 1;
+
+	const float twoPoleParams[NumTwoPoles * 2] =
+	{
+		-60955.0467455f, 41003.33158f,
+		-42322.4804959f, 109253.481903f,
+		-14706.1047493f, 145685.565838f
+	};
+
+	const float onePoleParams[NumOnePoles] =
+	{
+		-6.28318530718f
+	};
+
+	const float twoPoleBlitResidues[NumTwoPoles * 2] =
+	{
+		0.46405209959f, -1.68322334527f,
+		-0.813197725902f, 0.732167757755f,
+		0.349177929873f, -0.0711196565289f
+	};
+	const float onePoleBlitResidues[NumOnePoles] =
+	{
+		-0.000130924474811f
+	};
+
+	const float twoPoleBlepResidues[NumTwoPoles * 2] =
+	{
+		-0.865439484185f, 0.743315293152f,
+		0.400043560644f, 0.202306184346f,
+		-0.0346919876747f, -0.111544040315f
+	};
+	const float onePoleBlepResidues[NumOnePoles] =
+	{
+		0.00018931221891f
+	};
+
+	const float twoPoleBlampResidues[NumTwoPoles * 2] =
+	{
+		0.740273770661f, -0.0873667313413f,
+		0.0180839221351f, -0.182762572001f,
+		-0.0352382825418f, 0.014987300012f
+	};
+	const float onePoleBlampResidues[NumOnePoles] =
+	{
+		-1.44623882051f
+	};
+
+	const float blitDirectGain = 2.81037232826e-10;
 	const float blepDirectGain = 0;
 	const float blampDirectGain = 0;
 }
