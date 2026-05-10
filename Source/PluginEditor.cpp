@@ -29,13 +29,13 @@ LModelAudioProcessorEditor::LModelAudioProcessorEditor(LModelAudioProcessor& p)
 	K_Pitch.setText("pitch", "");
 	K_Pitch.ParamLink(audioProcessor.GetParams(), "pitch");
 	addAndMakeVisible(K_Pitch);
-	K_P1.setText("sync", "");
+	K_P1.setText("p1", "");
 	K_P1.ParamLink(audioProcessor.GetParams(), "p1");
 	addAndMakeVisible(K_P1);
-	K_P2.setText("pwm", "");
+	K_P2.setText("p2", "");
 	K_P2.ParamLink(audioProcessor.GetParams(), "p2");
 	addAndMakeVisible(K_P2);
-	K_P3.setText("form", "");
+	K_P3.setText("p3", "");
 	K_P3.ParamLink(audioProcessor.GetParams(), "p3");
 	addAndMakeVisible(K_P3);
 	K_P4.setText("fb", "");

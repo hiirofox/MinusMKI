@@ -11,21 +11,59 @@ namespace MinusMKI
 	{
 	private:
 	public:
-		virtual void Apply(float* table, int numSamples);
-		virtual void SetMutantParams(float param1, float param2, float param3);
+		virtual void Apply(float* table, int numSamples) {};
+		virtual void SetMutantParams(float param1, float param2, float param3) {};
 	};
+	template<int TableWidth>
 	class TableMutantSync :public TableMutant
 	{
-
+	public:
+		constexpr static float MaxFreqX = 16.0 / 8192.0;
+	private:
+		float descTable[TableWidth] = { 0 };
+		float depth = 0, phase = 0, smooth = 0;
+		float clampf01(float x) { return x - floorf(x); }
+	public:
+		void Apply(float* table, int numSamples) override
+		{
+			float dt = MaxFreqX * depth;
+			float t = 0;
+			float st = dt * numSamples;
+			float smooth1 = expf(-smooth * 12.0);
+			for (int i = 0; i < numSamples; ++i)
+			{
+				t += dt;
+				st += smooth1 * (t - st);//cool!
+				float idxf = clampf01(st + phase) * numSamples;
+				int idx1 = idxf;
+				int idx2 = idx1 + 1;
+				idx2 = idx2 >= numSamples ? 0 : idx2;
+				float frac = idxf - idx1;
+				float mag1 = table[idx1];
+				float mag2 = table[idx2];
+				float mag = mag1 + (mag2 - mag1) * frac;
+				descTable[i] = mag;
+			}
+			for (int i = 0; i < numSamples; ++i)table[i] = descTable[i];
+		}
+		void SetMutantParams(float depth, float phase, float smooth) override
+		{
+			this->depth = depth;
+			this->phase = phase;
+			this->smooth = smooth;
+		}
 	};
+	template<int TableWidth>
 	class TableMutantSelfm :public TableMutant
 	{
 
 	};
+	template<int TableWidth>
 	class TableMutantKickizer :public TableMutant
 	{
 
 	};
+	template<int TableWidth>
 	class TableMutantDisperser :public TableMutant
 	{
 
@@ -39,15 +77,19 @@ namespace MinusMKI
 		//IIRBlep2::IIRBlep blit;//只使用其blit功能
 		Lagrange4thBlep blit;//其实也不错
 
-		float intMagtable1[TableWidth * 2];
-		float intMagtable2[TableWidth * 2];
-		float* intMagtable = intMagtable1;
-		int swapInterval = 128;
-		int sampleCounter = 0;
+		float intMagtable1[TableWidth * 2] = { 0 };
+		float intMagtable2[TableWidth * 2] = { 0 };
+		float intMagtable3[TableWidth * 2] = { 0 };
+		float* intMagtableA = intMagtable1;
+		float* intMagtableB = intMagtable2;
+		float* nextIntMagtable = intMagtable3;
+
+		float swapInterval = 1.0 / 128.0;
+		float sampleCounter = 0;
 		int isSwapPrepared = 0;
 
 		float t = 0;
-		int ctrz(int x)
+		static int ctrz(int x)
 		{
 			int n = 0;
 			while (x > 1)
@@ -57,7 +99,64 @@ namespace MinusMKI
 			}
 			return n;
 		}
-		void CalcIntMagtable(float* intMagtable, float* source, int TableWidth)
+		void ProcessSwapTable()
+		{
+			if (isSwapPrepared == 0)
+			{
+				sampleCounter += swapInterval;
+			}
+			else if (isSwapPrepared == 2)//新缓冲区已准备好
+			{
+				if (nextIntMagtable == intMagtable1)//交换缓冲区
+				{
+					intMagtableA = intMagtable3;
+					intMagtableB = intMagtable1;
+					nextIntMagtable = intMagtable2;
+				}
+				else if (nextIntMagtable == intMagtable2)
+				{
+					intMagtableA = intMagtable1;
+					intMagtableB = intMagtable2;
+					nextIntMagtable = intMagtable3;
+				}
+				else if (nextIntMagtable == intMagtable3)
+				{
+					intMagtableA = intMagtable2;
+					intMagtableB = intMagtable3;
+					nextIntMagtable = intMagtable1;
+				}
+				isSwapPrepared = 0;
+				sampleCounter = 0.0;
+			}
+			if (sampleCounter > 1.0)
+			{
+				sampleCounter = 1.0;
+				isSwapPrepared = 1;
+			}
+		}
+	public:
+		WTOscillator()
+		{
+			float magtable[TableWidth];
+			const float normv = 1.0 / TableWidth;
+			float intn = 0;
+			for (int i = 0; i < TableWidth; ++i)
+			{
+				float x = (float)i / (TableWidth - 1);
+				//magtable[i] = (x * 2.0 - 1.0) * normv;//saw
+				//magtable[i] = (x < 0.5 ? -1 : 1) * normv;//sqr
+				//magtable[i] = asinf(sinf(x * 2.0 * M_PI)) * normv;//tri
+				//magtable[i] = (intn += (float)(rand() % 10000) / 10000.0 * (rand() % 2 ? 1 : -1))* 0.1 * normv;
+				//magtable[i] = sin(100.0 * powf(x, 0.045) * 2.0 * M_PI) * normv;//sin kick
+				magtable[i] = asinf(sinf(100.0 * powf(x, 0.045) * 2.0 * M_PI)) * normv;//tri kick
+				//magtable[i] = (sinf(100.0 * powf(x, 0.045) * 2.0 * M_PI) > 0 ? 1.0 : -1.0) * normv;//sqr kick
+			}
+			CalcIntMagtable(intMagtable1, magtable, TableWidth);
+			CalcIntMagtable(intMagtable2, magtable, TableWidth);
+			CalcIntMagtable(intMagtable3, magtable, TableWidth);
+		}
+
+		static void CalcIntMagtable(float* intMagtable, float* source, int TableWidth)
 		{
 			int n = ctrz(TableWidth);
 			int prevPos = 0;
@@ -101,49 +200,18 @@ namespace MinusMKI
 				intMagtable[pos] = intMagtable[prevPos];
 			}
 		}
-		void ProcessSwapTable()
-		{
-			if (isSwapPrepared == 2)
-			{
-				intMagtable = (intMagtable == intMagtable1) ? intMagtable2 : intMagtable1;
-				isSwapPrepared = 0;
-			}
-			sampleCounter++;
-			if (sampleCounter >= swapInterval)
-			{
-				sampleCounter = 0;
-				isSwapPrepared = 1;
-			}
-		}
-	public:
-		WTOscillator()
-		{
-			float magtable[TableWidth];
-			const float normv = 1.0 / TableWidth;
-			float intn = 0;
-			for (int i = 0; i < TableWidth; ++i)
-			{
-				float x = (float)i / (TableWidth - 1);
-				//magtable[i] = (x * 2.0 - 1.0) * normv;//saw
-				//magtable[i] = (x < 0.5 ? -1 : 1) * normv;//sqr
-				//magtable[i] = asinf(sinf(x * 2.0 * M_PI)) * normv;//tri
-				//magtable[i] = (intn += (float)(rand() % 10000) / 10000.0 * (rand() % 2 ? 1 : -1))* 0.1 * normv;
-				//magtable[i] = sin(100.0 * powf(x, 0.045) * 2.0 * M_PI) * normv;//sin kick
-				magtable[i] = asinf(sinf(100.0 * powf(x, 0.045) * 2.0 * M_PI)) * normv;//tri kick
-				//magtable[i] = (sinf(100.0 * powf(x, 0.045) * 2.0 * M_PI) > 0 ? 1.0 : -1.0) * normv;//sqr kick
-			}
-			CalcIntMagtable(intMagtable, magtable, TableWidth);
-		}
+
 		int IsSwapTablePrepared()
 		{
 			return isSwapPrepared == 1;
 		}
-		void ApplyTable(float* source, int TableWidth)
+		void ApplyIntMagtable(float* source, int TableWidth)
 		{
 			//在单线程调用下一句必死无疑
 			//while (!IsSwapTablePrepared())std::this_thread::yield();
-			float* nextTable = (intMagtable == intMagtable1) ? intMagtable2 : intMagtable1;
-			CalcIntMagtable(nextTable, source, TableWidth);
+			//CalcIntMagtable(nextIntMagtable, source, TableWidth);
+			for (int i = 0; i < TableWidth * 2; ++i)
+				nextIntMagtable[i] = source[i];
 			isSwapPrepared = 2;
 		}
 		float ProcessSampleHQ(float dt)//低频模式
@@ -163,10 +231,16 @@ namespace MinusMKI
 
 				if (pos1 < 0)pos1 += TableWidth;
 				if (pos2 < 0)pos2 += TableWidth;
+				pos1 %= TableWidth;
+				pos2 %= TableWidth;
 
-				float mag1 = intMagtable[pos1 % TableWidth];
-				float mag2 = intMagtable[pos2 % TableWidth];
-				float mag = mag1 + (mag2 - mag1) * frac;
+				float mag1A = intMagtableA[pos1];
+				float mag2A = intMagtableA[pos2];
+				float magA = mag1A + (mag2A - mag1A) * frac;
+				float mag1B = intMagtableB[pos1];
+				float mag2B = intMagtableB[pos2];
+				float magB = mag1B + (mag2B - mag1B) * frac;
+				float mag = magA + (magB - magA) * sampleCounter;
 
 				t += dt;
 				if (t >= 1.0)t -= 1.0;
@@ -183,7 +257,9 @@ namespace MinusMKI
 				int n = ctrz(abs(dt * TableWidth));
 				n -= 2; //用前2层表能有效减小跨表相位不连续
 				if (n < 0)n = 0;
-				float* selectedMagtable = intMagtable + (n == 0 ? 0 : TableWidth * 2 - (TableWidth >> (n - 1)));
+				int tableStart = (n == 0 ? 0 : TableWidth * 2 - (TableWidth >> (n - 1)));
+				float* selectedTableA = intMagtableA + tableStart;
+				float* selectedTableB = intMagtableB + tableStart;
 				int selectedTableWidth = TableWidth >> n;
 
 				float ut = t * selectedTableWidth;
@@ -194,7 +270,10 @@ namespace MinusMKI
 					for (int i = 0, pos = ut + 1.0; i < numpass; ++i, ++pos)
 					{
 						float where = 1.0 - ((float)pos - ut) / udt;
-						float mag = selectedMagtable[pos % selectedTableWidth];
+						int idx = pos % selectedTableWidth;
+						float magA = selectedTableA[idx];
+						float magB = selectedTableB[idx];
+						float mag = magA + (magB - magA) * sampleCounter;
 						blit.Add(mag * absOneDivDt, where, 0);
 					}
 				}
@@ -204,9 +283,11 @@ namespace MinusMKI
 					for (int i = 0, pos = (int)ceilf(ut) - 1; i < numpass; ++i, --pos)
 					{
 						float where = 1.0 - ((float)pos - ut) / udt;
-						int ipos = pos % selectedTableWidth;
-						if (ipos < 0)ipos += selectedTableWidth;
-						float mag = selectedMagtable[ipos];
+						int idx = pos % selectedTableWidth;
+						if (idx < 0)idx += selectedTableWidth;
+						float magA = selectedTableA[idx];
+						float magB = selectedTableB[idx];
+						float mag = magA + (magB - magA) * sampleCounter;
 						blit.Add(mag * absOneDivDt, where, 0);
 					}
 				}
@@ -227,7 +308,9 @@ namespace MinusMKI
 			if (dt < -0.499)dt = -0.499;
 
 			int n = ctrz(abs(dt * TableWidth));
-			float* selectedMagtable = intMagtable + (n == 0 ? 0 : TableWidth * 2 - (TableWidth >> (n - 1)));
+			int tableStart = (n == 0 ? 0 : TableWidth * 2 - (TableWidth >> (n - 1)));
+			float* selectedTableA = intMagtableA + tableStart;
+			float* selectedTableB = intMagtableB + tableStart;
 			int selectedTableWidth = TableWidth >> n;
 			//float* selectedMagtable = intMagtable; 
 			//int selectedTableWidth = TableWidth;
@@ -239,10 +322,16 @@ namespace MinusMKI
 
 			if (pos1 < 0)pos1 += selectedTableWidth;
 			if (pos2 < 0)pos2 += selectedTableWidth;
+			pos1 %= selectedTableWidth;
+			pos2 %= selectedTableWidth;
 
-			float mag1 = selectedMagtable[pos1 % selectedTableWidth];
-			float mag2 = selectedMagtable[pos2 % selectedTableWidth];
-			float mag = mag1 + (mag2 - mag1) * frac;
+			float mag1A = selectedTableA[pos1];
+			float mag2A = selectedTableA[pos2];
+			float magA = mag1A + (mag2A - mag1A) * frac;
+			float mag1B = selectedTableB[pos1];
+			float mag2B = selectedTableB[pos2];
+			float magB = mag1B + (mag2B - mag1B) * frac;
+			float mag = magA + (magB - magA) * sampleCounter;
 
 			lastt = t;
 			t += dt;
@@ -256,19 +345,46 @@ namespace MinusMKI
 
 	class WaveTableOscTest
 	{
-	private:
-		WTOscillator osc1;
-		float dt = 0, fb = 0;
 	public:
-		void SetParams(float freq, float fb, float sr = 48000)
+		constexpr static int TableWidth = WTOscillator::TableWidth;
+	private:
+		float tableSource[TableWidth * 2] = { 0 };
+		float table[TableWidth * 2] = { 0 };
+		TableMutantSync<TableWidth> mutantSync;
+		WTOscillator osc1;
+		float dt = 0;
+	public:
+		WaveTableOscTest()
 		{
-			this->fb = fb;
-			dt = freq / sr;
+			const float normv = 1.0 / TableWidth;
+			float intn = 0;
+			for (int i = 0; i < TableWidth; ++i)
+			{
+				float x = (float)i / (TableWidth - 1);
+				//magtable[i] = (x * 2.0 - 1.0) * normv;//saw
+				//magtable[i] = (x < 0.5 ? -1 : 1) * normv;//sqr
+				//magtable[i] = asinf(sinf(x * 2.0 * M_PI)) * normv;//tri
+				//magtable[i] = (intn += (float)(rand() % 10000) / 10000.0 * (rand() % 2 ? 1 : -1))* 0.1 * normv;
+				//magtable[i] = sin(100.0 * powf(x, 0.045) * 2.0 * M_PI) * normv;//sin kick
+				tableSource[i] = asinf(sinf(100.0 * powf(x, 0.045) * 2.0 * M_PI)) * normv;//tri kick
+				//magtable[i] = (sinf(100.0 * powf(x, 0.045) * 2.0 * M_PI) > 0 ? 1.0 : -1.0) * normv;//sqr kick
+			}
 		}
-		float z = 0.0;
+		void SetParams(float freq, float p1, float p2, float p3, float sr = 48000)
+		{
+			dt = freq / sr;
+			if (osc1.IsSwapTablePrepared())
+			{
+				mutantSync.SetMutantParams(p1, p2, p3);
+				for (int i = 0; i < TableWidth; ++i)table[i] = tableSource[i];
+				mutantSync.Apply(table, TableWidth);
+				WTOscillator::CalcIntMagtable(table, table, TableWidth);
+				osc1.ApplyIntMagtable(table, TableWidth);
+			}
+		}
 		float ProcessSample()
 		{
-			return z = osc1.ProcessSample(dt + z * fb);
+			return osc1.ProcessSample(dt);
 		}
 		void ProcessBlock(float* outl, float* outr, int numSamples)
 		{
