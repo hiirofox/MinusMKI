@@ -61,7 +61,40 @@ namespace MinusMKI
 	template<int TableWidth>
 	class TableMutantKickizer :public TableMutant
 	{
-
+	public:
+	private:
+		float descTable[TableWidth] = { 0 };
+		float depth = 0, tmix = 0, rate = 0;
+		float clampf01(float x) { return x - floorf(x); }
+	public:
+		void Apply(float* table, int numSamples) override
+		{
+			float depth1 = depth * 200.0;
+			float rate1 = expf(-rate * 6.0);
+			for (int i = 0; i < numSamples; ++i)
+			{
+				float x = (float)i / numSamples;
+				float t1 = depth1 * powf(x, rate1);
+				float t2 = x;
+				float t = t2 + (t1 - t2) * tmix;
+				float idxf = clampf01(t) * numSamples;
+				int idx1 = idxf;
+				int idx2 = idx1 + 1;
+				idx2 = idx2 >= numSamples ? 0 : idx2;
+				float frac = idxf - idx1;
+				float mag1 = table[idx1];
+				float mag2 = table[idx2];
+				float mag = mag1 + (mag2 - mag1) * frac;
+				descTable[i] = mag;
+			}
+			for (int i = 0; i < numSamples; ++i)table[i] = descTable[i];
+		}
+		void SetMutantParams(float depth, float tmix, float rate) override
+		{
+			this->depth = depth;
+			this->tmix = tmix;
+			this->rate = rate;
+		}
 	};
 	template<int TableWidth>
 	class TableMutantDisperser :public TableMutant
@@ -84,7 +117,7 @@ namespace MinusMKI
 		float* intMagtableB = intMagtable2;
 		float* nextIntMagtable = intMagtable3;
 
-		float swapInterval = 1.0 / 128.0;
+		float swapInterval = 1.0 / 1024.0;
 		float sampleCounter = 0;
 		int isSwapPrepared = 0;
 
@@ -351,6 +384,7 @@ namespace MinusMKI
 		float tableSource[TableWidth * 2] = { 0 };
 		float table[TableWidth * 2] = { 0 };
 		TableMutantSync<TableWidth> mutantSync;
+		TableMutantKickizer<TableWidth> mutantKickizer;
 		WTOscillator osc1;
 		float dt = 0;
 	public:
@@ -361,23 +395,25 @@ namespace MinusMKI
 			for (int i = 0; i < TableWidth; ++i)
 			{
 				float x = (float)i / (TableWidth - 1);
-				//magtable[i] = (x * 2.0 - 1.0) * normv;//saw
-				//magtable[i] = (x < 0.5 ? -1 : 1) * normv;//sqr
-				//magtable[i] = asinf(sinf(x * 2.0 * M_PI)) * normv;//tri
-				//magtable[i] = (intn += (float)(rand() % 10000) / 10000.0 * (rand() % 2 ? 1 : -1))* 0.1 * normv;
-				//magtable[i] = sin(100.0 * powf(x, 0.045) * 2.0 * M_PI) * normv;//sin kick
-				tableSource[i] = asinf(sinf(100.0 * powf(x, 0.045) * 2.0 * M_PI)) * normv;//tri kick
-				//magtable[i] = (sinf(100.0 * powf(x, 0.045) * 2.0 * M_PI) > 0 ? 1.0 : -1.0) * normv;//sqr kick
+				//tableSource[i] = (x * 2.0 - 1.0) * normv;//saw
+				//tableSource[i] = (x < 0.5 ? -1 : 1) * normv;//sqr
+				tableSource[i] = asinf(sinf(x * 2.0 * M_PI)) * normv;//tri
+				//tableSource[i] = (intn += (float)(rand() % 10000) / 10000.0 * (rand() % 2 ? 1 : -1))* 0.1 * normv;
+				//tableSource[i] = sin(100.0 * powf(x, 0.045) * 2.0 * M_PI) * normv;//sin kick
+				//tableSource[i] = asinf(sinf(100.0 * powf(x, 0.045) * 2.0 * M_PI)) * normv;//tri kick
+				//tableSource[i] = (sinf(100.0 * powf(x, 0.045) * 2.0 * M_PI) > 0 ? 1.0 : -1.0) * normv;//sqr kick
 			}
 		}
-		void SetParams(float freq, float p1, float p2, float p3, float sr = 48000)
+		void SetParams(float freq, float p1, float p2, float p3, float p4, float p5, float p6, float sr = 48000)
 		{
 			dt = freq / sr;
 			if (osc1.IsSwapTablePrepared())
 			{
 				mutantSync.SetMutantParams(p1, p2, p3);
+				mutantKickizer.SetMutantParams(p4, p5, p6);
 				for (int i = 0; i < TableWidth; ++i)table[i] = tableSource[i];
 				mutantSync.Apply(table, TableWidth);
+				mutantKickizer.Apply(table, TableWidth);
 				WTOscillator::CalcIntMagtable(table, table, TableWidth);
 				osc1.ApplyIntMagtable(table, TableWidth);
 			}
