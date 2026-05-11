@@ -173,7 +173,145 @@ namespace MinusMKI
 	template<int TableWidth>
 	class TableMutantDisperser :public TableMutant
 	{
+	private:
+		float descTableRe[TableWidth] = { 0 };
+		float descTableIm[TableWidth] = { 0 };
+		float tmpRe[TableWidth] = { 0 };
+		float tmpIm[TableWidth] = { 0 };
+		float disperse = 0, harmonic = 0, comb = 0;
+		void FFT(float* re, float* im, int n, bool inverse)
+		{
+			int j = 0;
+			for (int i = 1; i < n; ++i)
+			{
+				int bit = n >> 1;
+				while (j & bit)
+				{
+					j ^= bit;
+					bit >>= 1;
+				}
+				j ^= bit;
+				if (i < j)
+				{
+					std::swap(re[i], re[j]);
+					std::swap(im[i], im[j]);
+				}
+			}
+			for (int len = 2; len <= n; len <<= 1)
+			{
+				float ang = (inverse ? 2.0f : -2.0f) * 3.14159265359f / len;
+				float wlenr = cosf(ang);
+				float wleni = sinf(ang);
+				for (int i = 0; i < n; i += len)
+				{
+					float wr = 1.0f;
+					float wi = 0.0f;
+					for (int j = 0; j < len / 2; ++j)
+					{
+						int i0 = i + j;
+						int i1 = i + j + len / 2;
+						float ur = re[i0];
+						float ui = im[i0];
+						float vr = re[i1] * wr - im[i1] * wi;
+						float vi = re[i1] * wi + im[i1] * wr;
+						re[i0] = ur + vr;
+						im[i0] = ui + vi;
+						re[i1] = ur - vr;
+						im[i1] = ui - vi;
+						float nwr = wr * wlenr - wi * wleni;
+						float nwi = wr * wleni + wi * wlenr;
+						wr = nwr;
+						wi = nwi;
+					}
+				}
+			}
+			if (inverse)
+			{
+				float invn = 1.0f / n;
+				for (int i = 0; i < n; ++i)
+				{
+					re[i] *= invn;
+					im[i] *= invn;
+				}
+			}
+		}
+	public:
+		void Apply(float* table, int numSamples) override
+		{
+			for (int i = 0; i < numSamples; ++i)
+			{
+				descTableRe[i] = table[i];
+				descTableIm[i] = 0;
+			}
+			FFT(descTableRe, descTableIm, numSamples, 0);
+			descTableRe[0] = descTableIm[0] = 0;
 
+			int half = numSamples >> 1;
+			//disperser
+			for (int i = 1; i < half; ++i)
+			{
+				float f = (float)i / half;
+				float rf = f + f * f * disperse;
+				float phaseOffset = (rf - f) * 2.0f * 3.14159265359f * numSamples;
+				float cs = cosf(phaseOffset);
+				float sn = sinf(phaseOffset);
+				float re = descTableRe[i];
+				float im = descTableIm[i];
+				float nre = re * cs - im * sn;
+				float nim = re * sn + im * cs;
+				descTableRe[i] = nre;
+				descTableIm[i] = nim;
+			}
+			//harmonic
+			memset(tmpRe, 0, sizeof(float) * numSamples);
+			memset(tmpIm, 0, sizeof(float) * numSamples);
+			float shift = harmonic;
+			for (int i = 1; i < half; ++i)
+			{
+				float src0 = (float)(i + 0) - shift;
+				float src1 = (float)(i + 1) - shift;
+				if (src0 < 0) src0 = 0;
+				if (src1 < 0) src1 = 0;
+				if (src0 > half)src0 = half;
+				if (src1 > half)src1 = half;
+
+				int i0 = src0;
+				int i1 = src1;
+
+				float frac = src1 - (float)i1;
+				float re = descTableRe[i0] + (descTableRe[i1] - descTableRe[i0]) * frac;
+				float im = descTableIm[i0] + (descTableIm[i1] - descTableIm[i0]) * frac;
+				tmpRe[i] = re;
+				tmpIm[i] = im;
+			}
+			for (int i = 1; i < half; ++i)
+			{
+				descTableRe[i] = tmpRe[i];
+				descTableIm[i] = tmpIm[i];
+			}
+			//comb
+			for (int i = 1; i < half; ++i)
+			{
+				float x = (float)i / half * 2.0 * M_PI;
+				float m = cosf(x * comb);
+				descTableRe[i] *= m;
+				descTableIm[i] *= m;
+			}
+			//ifft
+			for (int i = 1; i < half; ++i)
+			{
+				descTableRe[numSamples - i] = descTableRe[i];
+				descTableIm[numSamples - i] = -descTableIm[i];
+			}
+			FFT(descTableRe, descTableIm, numSamples, 1);
+			for (int i = 0; i < numSamples; ++i) table[i] = descTableRe[i];
+		}
+		void SetMutantParams(float disperse, float harmonic, float comb) override
+		{
+			this->disperse = disperse * 200.0;
+			this->harmonic = harmonic * 16.0;
+			this->comb = comb * TableWidth / 8.0;
+		}
 	};
 
 	class WTOscillator
@@ -460,6 +598,7 @@ namespace MinusMKI
 		TableMutantSync<TableWidth> mutantSync;
 		TableMutantKickizer<TableWidth> mutantKickizer;
 		TableMutantSelfPM<TableWidth> mutantSelfPM;
+		TableMutantDisperser<TableWidth> mutantDisperser;
 		WTOscillator osc1;
 		float dt = 0;
 	public:
@@ -470,9 +609,9 @@ namespace MinusMKI
 			for (int i = 0; i < TableWidth; ++i)
 			{
 				float x = (float)i / (TableWidth - 1);
-				//tableSource[i] = (x * 2.0 - 1.0) * normv;//saw
+				tableSource[i] = (x * 2.0 - 1.0) * normv;//saw
 				//tableSource[i] = (x < 0.5 ? -1 : 1) * normv;//sqr
-				tableSource[i] = asinf(sinf(x * 2.0 * M_PI)) * normv;//tri
+				//tableSource[i] = asinf(sinf(x * 2.0 * M_PI)) * normv;//tri
 				//tableSource[i] = (intn += (float)(rand() % 10000) / 10000.0 * (rand() % 2 ? 1 : -1))* 0.1 * normv;
 				//tableSource[i] = sin(100.0 * powf(x, 0.045) * 2.0 * M_PI) * normv;//sin kick
 				//tableSource[i] = asinf(sinf(100.0 * powf(x, 0.045) * 2.0 * M_PI)) * normv;//tri kick
@@ -486,11 +625,13 @@ namespace MinusMKI
 			{
 				//mutantSync.SetMutantParams(p1, p2, p3);
 				//mutantKickizer.SetMutantParams(p4, p5, p6);
-				mutantSelfPM.SetMutantParams(p1, p2, p3);
+				//mutantSelfPM.SetMutantParams(p1, p2, p3);
+				mutantDisperser.SetMutantParams(p1, p2, p3);
 				for (int i = 0; i < TableWidth; ++i)table[i] = tableSource[i];
 				//mutantSync.Apply(table, TableWidth);
 				//mutantKickizer.Apply(table, TableWidth);
-				mutantSelfPM.Apply(table, TableWidth);
+				//mutantSelfPM.Apply(table, TableWidth);
+				mutantDisperser.Apply(table, TableWidth);
 				WTOscillator::CalcIntMagtable(table, table, TableWidth);
 				osc1.ApplyIntMagtable(table, TableWidth);
 			}
