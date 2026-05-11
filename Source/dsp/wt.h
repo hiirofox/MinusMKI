@@ -54,9 +54,83 @@ namespace MinusMKI
 		}
 	};
 	template<int TableWidth>
-	class TableMutantSelfm :public TableMutant
+	class TableMutantSelfPM :public TableMutant
 	{
+	public:
+		constexpr static int NumStages = 6;
+	private:
+		float descTable1[TableWidth] = { 0 };
+		float descTable2[TableWidth] = { 0 };
+		float depth = 0, prelp = 0, stages = 0;
+		float lpv[NumStages] = { 0 };
+		float clampf01(float x) { return x - floorf(x); }
+	public:
+		void Apply(float* table, int numSamples) override
+		{
+			float dp = depth * 800.0;
+			float ctof = expf(-(1.0 - prelp) * 8.0) * 0.5;
+			float stagef = stages * (NumStages - 2.0) + 2.0;
+			int stage = stagef;
+			float stagefrac = stagef - stage;
 
+			float* srcTable = table;
+			float* dscTable = descTable2;
+			for (auto& v : lpv)v = 0;
+			for (int n = 0; n < stage; ++n)
+			{
+				for (int i = 0; i < numSamples; ++i)
+				{
+					float t0 = (float)i / numSamples;
+					float t = t0 + lpv[n] * dp;
+					float idxf = clampf01(t) * numSamples;
+					int idx1 = idxf;
+					int idx2 = idx1 + 1;
+					idx2 = idx2 >= numSamples ? 0 : idx2;
+					float frac = idxf - idx1;
+					float mag1 = srcTable[idx1];
+					float mag2 = srcTable[idx2];
+					float mag = mag1 + (mag2 - mag1) * frac;
+					lpv[n] += ctof * (mag - lpv[n]);
+				}
+				for (int i = 0; i < numSamples; ++i)
+				{
+					float t0 = (float)i / numSamples;
+					float t = t0 + lpv[n] * dp;
+					float idxf = clampf01(t) * numSamples;
+					int idx1 = idxf;
+					int idx2 = idx1 + 1;
+					idx2 = idx2 >= numSamples ? 0 : idx2;
+					float frac = idxf - idx1;
+					float mag1 = srcTable[idx1];
+					float mag2 = srcTable[idx2];
+					float mag = mag1 + (mag2 - mag1) * frac;
+					lpv[n] += ctof * (mag - lpv[n]);
+					dscTable[i] = mag;
+				}
+				if (dscTable == descTable2)//swap
+				{
+					srcTable = descTable2;
+					dscTable = descTable1;
+				}
+				else
+				{
+					srcTable = descTable1;
+					dscTable = descTable2;
+				}
+			}
+			for (int i = 0; i < numSamples; ++i)
+			{
+				float m0 = dscTable[i];
+				float m1 = srcTable[i];
+				table[i] = m0 + (m1 - m0) * stagefrac;
+			}
+		}
+		void SetMutantParams(float depth, float prelp, float stages) override
+		{
+			this->depth = depth;
+			this->prelp = prelp;
+			this->stages = stages;
+		}
 	};
 	template<int TableWidth>
 	class TableMutantKickizer :public TableMutant
@@ -385,6 +459,7 @@ namespace MinusMKI
 		float table[TableWidth * 2] = { 0 };
 		TableMutantSync<TableWidth> mutantSync;
 		TableMutantKickizer<TableWidth> mutantKickizer;
+		TableMutantSelfPM<TableWidth> mutantSelfPM;
 		WTOscillator osc1;
 		float dt = 0;
 	public:
@@ -409,11 +484,13 @@ namespace MinusMKI
 			dt = freq / sr;
 			if (osc1.IsSwapTablePrepared())
 			{
-				mutantSync.SetMutantParams(p1, p2, p3);
-				mutantKickizer.SetMutantParams(p4, p5, p6);
+				//mutantSync.SetMutantParams(p1, p2, p3);
+				//mutantKickizer.SetMutantParams(p4, p5, p6);
+				mutantSelfPM.SetMutantParams(p1, p2, p3);
 				for (int i = 0; i < TableWidth; ++i)table[i] = tableSource[i];
-				mutantSync.Apply(table, TableWidth);
-				mutantKickizer.Apply(table, TableWidth);
+				//mutantSync.Apply(table, TableWidth);
+				//mutantKickizer.Apply(table, TableWidth);
+				mutantSelfPM.Apply(table, TableWidth);
 				WTOscillator::CalcIntMagtable(table, table, TableWidth);
 				osc1.ApplyIntMagtable(table, TableWidth);
 			}
