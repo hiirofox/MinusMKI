@@ -308,7 +308,7 @@ namespace MinusMKI
 		}
 		void SetMutantParams(float disperse, float harmonic, float comb) override
 		{
-			this->disperse = disperse * 200.0;
+			this->disperse = disperse * disperse * disperse * disperse * 200.0;
 			this->harmonic = harmonic * 16.0;
 			this->comb = comb * TableWidth / 8.0;
 		}
@@ -329,7 +329,7 @@ namespace MinusMKI
 		float* intMagtableB = intMagtable2;
 		float* nextIntMagtable = intMagtable3;
 
-		float swapInterval = 1.0 / 1024.0;
+		float swapInterval = 1.0 / 256.0;
 		float sampleCounter = 0;
 		int isSwapPrepared = 0;
 
@@ -601,6 +601,9 @@ namespace MinusMKI
 		TableMutantDisperser<TableWidth> mutantDisperser;
 		WTOscillator osc1;
 		float dt = 0;
+
+		std::unique_ptr<std::thread> tableMutantThread;
+		std::atomic<bool> isRunning = true;
 	public:
 		WaveTableOscTest()
 		{
@@ -609,32 +612,52 @@ namespace MinusMKI
 			for (int i = 0; i < TableWidth; ++i)
 			{
 				float x = (float)i / (TableWidth - 1);
-				tableSource[i] = (x * 2.0 - 1.0) * normv;//saw
-				//tableSource[i] = (x < 0.5 ? -1 : 1) * normv;//sqr
+				//tableSource[i] = (x * 2.0 - 1.0) * normv;//saw
+				tableSource[i] = (x < 0.5 ? -1 : 1) * normv;//sqr
 				//tableSource[i] = asinf(sinf(x * 2.0 * M_PI)) * normv;//tri
 				//tableSource[i] = (intn += (float)(rand() % 10000) / 10000.0 * (rand() % 2 ? 1 : -1))* 0.1 * normv;
 				//tableSource[i] = sin(100.0 * powf(x, 0.045) * 2.0 * M_PI) * normv;//sin kick
 				//tableSource[i] = asinf(sinf(100.0 * powf(x, 0.045) * 2.0 * M_PI)) * normv;//tri kick
 				//tableSource[i] = (sinf(100.0 * powf(x, 0.045) * 2.0 * M_PI) > 0 ? 1.0 : -1.0) * normv;//sqr kick
 			}
+			tableMutantThread.reset(new std::thread(updateTableFunc));
 		}
+		~WaveTableOscTest()
+		{
+			isRunning = false;
+			if (tableMutantThread)tableMutantThread->join();
+		}
+		std::atomic<float> freq = 0, p1 = 0, p2 = 0, p3 = 0, p4 = 0, p5 = 0, p6 = 0;
+		std::function<void(void)> updateTableFunc = [&]() {
+			while (isRunning)
+			{
+				if (osc1.IsSwapTablePrepared())
+				{
+					//mutantSync.SetMutantParams(p1, p2, p3);
+					mutantKickizer.SetMutantParams(p4, p5, p6);
+					//mutantSelfPM.SetMutantParams(p1, p2, p3);
+					mutantDisperser.SetMutantParams(p1, p2, p3);
+					for (int i = 0; i < TableWidth; ++i)table[i] = tableSource[i];
+					//mutantSync.Apply(table, TableWidth);
+					//mutantSelfPM.Apply(table, TableWidth);
+					mutantDisperser.Apply(table, TableWidth);
+					mutantKickizer.Apply(table, TableWidth);
+					WTOscillator::CalcIntMagtable(table, table, TableWidth);
+					osc1.ApplyIntMagtable(table, TableWidth);
+				}
+				std::this_thread::sleep_for(std::chrono::nanoseconds(2000));
+			}
+			};
 		void SetParams(float freq, float p1, float p2, float p3, float p4, float p5, float p6, float sr = 48000)
 		{
+			this->freq = freq;
+			this->p1 = p1;
+			this->p2 = p2;
+			this->p3 = p3;
+			this->p4 = p4;
+			this->p5 = p5;
+			this->p6 = p6;
 			dt = freq / sr;
-			if (osc1.IsSwapTablePrepared())
-			{
-				//mutantSync.SetMutantParams(p1, p2, p3);
-				//mutantKickizer.SetMutantParams(p4, p5, p6);
-				//mutantSelfPM.SetMutantParams(p1, p2, p3);
-				mutantDisperser.SetMutantParams(p1, p2, p3);
-				for (int i = 0; i < TableWidth; ++i)table[i] = tableSource[i];
-				//mutantSync.Apply(table, TableWidth);
-				//mutantKickizer.Apply(table, TableWidth);
-				//mutantSelfPM.Apply(table, TableWidth);
-				mutantDisperser.Apply(table, TableWidth);
-				WTOscillator::CalcIntMagtable(table, table, TableWidth);
-				osc1.ApplyIntMagtable(table, TableWidth);
-			}
 		}
 		float ProcessSample()
 		{
