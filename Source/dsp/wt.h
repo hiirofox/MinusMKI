@@ -7,6 +7,63 @@
 
 namespace MinusMKI
 {
+	static void FFT(float* re, float* im, int n, bool inverse)
+	{
+		int j = 0;
+		for (int i = 1; i < n; ++i)
+		{
+			int bit = n >> 1;
+			while (j & bit)
+			{
+				j ^= bit;
+				bit >>= 1;
+			}
+			j ^= bit;
+			if (i < j)
+			{
+				std::swap(re[i], re[j]);
+				std::swap(im[i], im[j]);
+			}
+		}
+		for (int len = 2; len <= n; len <<= 1)
+		{
+			float ang = (inverse ? 2.0f : -2.0f) * 3.14159265359f / len;
+			float wlenr = cosf(ang);
+			float wleni = sinf(ang);
+			for (int i = 0; i < n; i += len)
+			{
+				float wr = 1.0f;
+				float wi = 0.0f;
+				for (int j = 0; j < len / 2; ++j)
+				{
+					int i0 = i + j;
+					int i1 = i + j + len / 2;
+					float ur = re[i0];
+					float ui = im[i0];
+					float vr = re[i1] * wr - im[i1] * wi;
+					float vi = re[i1] * wi + im[i1] * wr;
+					re[i0] = ur + vr;
+					im[i0] = ui + vi;
+					re[i1] = ur - vr;
+					im[i1] = ui - vi;
+					float nwr = wr * wlenr - wi * wleni;
+					float nwi = wr * wleni + wi * wlenr;
+					wr = nwr;
+					wi = nwi;
+				}
+			}
+		}
+		if (inverse)
+		{
+			float invn = 1.0f / n;
+			for (int i = 0; i < n; ++i)
+			{
+				re[i] *= invn;
+				im[i] *= invn;
+			}
+		}
+	}
+
 	class TableMutant
 	{
 	private:
@@ -167,7 +224,7 @@ namespace MinusMKI
 		{
 			this->depth = depth;
 			this->tmix = tmix;
-			this->rate = rate;
+			this->rate = 1.0 - rate;
 		}
 	};
 	template<int TableWidth>
@@ -179,62 +236,7 @@ namespace MinusMKI
 		float tmpRe[TableWidth] = { 0 };
 		float tmpIm[TableWidth] = { 0 };
 		float disperse = 0, harmonic = 0, comb = 0;
-		void FFT(float* re, float* im, int n, bool inverse)
-		{
-			int j = 0;
-			for (int i = 1; i < n; ++i)
-			{
-				int bit = n >> 1;
-				while (j & bit)
-				{
-					j ^= bit;
-					bit >>= 1;
-				}
-				j ^= bit;
-				if (i < j)
-				{
-					std::swap(re[i], re[j]);
-					std::swap(im[i], im[j]);
-				}
-			}
-			for (int len = 2; len <= n; len <<= 1)
-			{
-				float ang = (inverse ? 2.0f : -2.0f) * 3.14159265359f / len;
-				float wlenr = cosf(ang);
-				float wleni = sinf(ang);
-				for (int i = 0; i < n; i += len)
-				{
-					float wr = 1.0f;
-					float wi = 0.0f;
-					for (int j = 0; j < len / 2; ++j)
-					{
-						int i0 = i + j;
-						int i1 = i + j + len / 2;
-						float ur = re[i0];
-						float ui = im[i0];
-						float vr = re[i1] * wr - im[i1] * wi;
-						float vi = re[i1] * wi + im[i1] * wr;
-						re[i0] = ur + vr;
-						im[i0] = ui + vi;
-						re[i1] = ur - vr;
-						im[i1] = ui - vi;
-						float nwr = wr * wlenr - wi * wleni;
-						float nwi = wr * wleni + wi * wlenr;
-						wr = nwr;
-						wi = nwi;
-					}
-				}
-			}
-			if (inverse)
-			{
-				float invn = 1.0f / n;
-				for (int i = 0; i < n; ++i)
-				{
-					re[i] *= invn;
-					im[i] *= invn;
-				}
-			}
-		}
+
 	public:
 		void Apply(float* table, int numSamples) override
 		{
@@ -243,7 +245,7 @@ namespace MinusMKI
 				descTableRe[i] = table[i];
 				descTableIm[i] = 0;
 			}
-			FFT(descTableRe, descTableIm, numSamples, 0);
+			MinusMKI::FFT(descTableRe, descTableIm, numSamples, 0);
 			descTableRe[0] = descTableIm[0] = 0;
 
 			int half = numSamples >> 1;
@@ -303,7 +305,7 @@ namespace MinusMKI
 				descTableRe[numSamples - i] = descTableRe[i];
 				descTableIm[numSamples - i] = -descTableIm[i];
 			}
-			FFT(descTableRe, descTableIm, numSamples, 1);
+			MinusMKI::FFT(descTableRe, descTableIm, numSamples, 1);
 			for (int i = 0; i < numSamples; ++i) table[i] = descTableRe[i];
 		}
 		void SetMutantParams(float disperse, float harmonic, float comb) override
@@ -588,6 +590,53 @@ namespace MinusMKI
 		void SetStartPhase(float phase) { this->t = phase; }
 	};
 
+	class WavetableGenerator
+	{
+	public:
+		constexpr static int TableWidth = WTOscillator::TableWidth;
+		constexpr static int TableHeight = 64;
+	private:
+		int presetID = 0;
+		float tables[TableHeight][TableWidth] = { 0 };
+		float tmpre[TableWidth] = { 0 };
+		float tmpim[TableWidth] = { 0 };
+	public:
+		WavetableGenerator()
+		{
+			Generate(0);
+		}
+		void Generate(int preset)
+		{
+			const float normv = 1.0 / TableWidth;
+			if (preset == 0)
+			{
+				for (int j = 0; j < TableHeight; ++j)
+				{
+					float y = (float)j / TableHeight;
+					tmpre[0] = tmpim[0] = 0;
+					float totenergy = 0;
+					for (int i = 1; i < TableWidth / 2; ++i)
+					{
+						float amp = powf(1.0 / i, y * 3.0 + 0.75);
+						float phase = -0.5f * M_PI;
+						tmpre[i] = cosf(phase) * amp;
+						tmpim[i] = sinf(phase) * amp;
+						totenergy += amp * amp;
+						tmpre[TableWidth - i] = +tmpre[i];
+						tmpim[TableWidth - i] = -tmpim[i];
+					}
+					MinusMKI::FFT(tmpre, tmpim, TableWidth, true);
+					totenergy = 1.0 / sqrtf(totenergy);
+					for (int i = 1; i < TableWidth; ++i)
+					{
+						tables[j][i] = tmpre[i] * totenergy;
+					}
+				}
+			}
+		}
+		float* GetTable(int y) { return tables[y]; }
+	};
+
 	class WaveTableOscTest
 	{
 	public:
@@ -595,6 +644,7 @@ namespace MinusMKI
 	private:
 		float tableSource[TableWidth * 2] = { 0 };
 		float table[TableWidth * 2] = { 0 };
+		WavetableGenerator wtgen;
 		TableMutantSync<TableWidth> mutantSync;
 		TableMutantKickizer<TableWidth> mutantKickizer;
 		TableMutantSelfPM<TableWidth> mutantSelfPM;
@@ -627,20 +677,24 @@ namespace MinusMKI
 			isRunning = false;
 			if (tableMutantThread)tableMutantThread->join();
 		}
-		std::atomic<float> freq = 0, p1 = 0, p2 = 0, p3 = 0, p4 = 0, p5 = 0, p6 = 0;
+		std::atomic<float> freq = 0, p1 = 0, p2 = 0, p3 = 0, p4 = 0, p5 = 0, p6 = 0, p7 = 0;
 		std::function<void(void)> updateTableFunc = [&]() {
 			while (isRunning)
 			{
 				if (osc1.IsSwapTablePrepared())
 				{
-					//mutantSync.SetMutantParams(p1, p2, p3);
-					mutantKickizer.SetMutantParams(p4, p5, p6);
+					mutantSync.SetMutantParams(p1, p2, p3);
 					//mutantSelfPM.SetMutantParams(p1, p2, p3);
-					mutantDisperser.SetMutantParams(p1, p2, p3);
-					for (int i = 0; i < TableWidth; ++i)table[i] = tableSource[i];
-					//mutantSync.Apply(table, TableWidth);
+					//mutantDisperser.SetMutantParams(p1, p2, p3);
+					mutantKickizer.SetMutantParams(p4, p5, p6);
+
+					//for (int i = 0; i < TableWidth; ++i)table[i] = tableSource[i];
+					float* wtgenTable = wtgen.GetTable(p7 * 63);
+					for (int i = 0; i < TableWidth; ++i)table[i] = wtgenTable[i];
+
+					mutantSync.Apply(table, TableWidth);
 					//mutantSelfPM.Apply(table, TableWidth);
-					mutantDisperser.Apply(table, TableWidth);
+					//mutantDisperser.Apply(table, TableWidth);
 					mutantKickizer.Apply(table, TableWidth);
 					WTOscillator::CalcIntMagtable(table, table, TableWidth);
 					osc1.ApplyIntMagtable(table, TableWidth);
@@ -648,7 +702,7 @@ namespace MinusMKI
 				std::this_thread::sleep_for(std::chrono::nanoseconds(2000));
 			}
 			};
-		void SetParams(float freq, float p1, float p2, float p3, float p4, float p5, float p6, float sr = 48000)
+		void SetParams(float freq, float p1, float p2, float p3, float p4, float p5, float p6, float p7, float sr = 48000)
 		{
 			this->freq = freq;
 			this->p1 = p1;
@@ -657,6 +711,7 @@ namespace MinusMKI
 			this->p4 = p4;
 			this->p5 = p5;
 			this->p6 = p6;
+			this->p7 = p7;
 			dt = freq / sr;
 		}
 		float ProcessSample()

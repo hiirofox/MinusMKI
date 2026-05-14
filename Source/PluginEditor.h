@@ -37,6 +37,7 @@ private:
 	LMKnob K_P4;
 	LMKnob K_P5;
 	LMKnob K_P6;
+	LMKnob K_P7;
 
 
 	juce::ComponentBoundsConstrainer constrainer;  // 用于设置宽高比例

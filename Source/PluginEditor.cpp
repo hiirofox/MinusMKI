@@ -20,8 +20,8 @@ LModelAudioProcessorEditor::LModelAudioProcessorEditor(LModelAudioProcessor& p)
 	setOpaque(false);  // 允许在边框外面绘制
 
 	//setResizeLimits(64 * 11, 64 * 5, 10000, 10000); // 设置最小宽高为300x200，最大宽高为800x600
-	setSize(64 * 8, 64 * 2);
-	setResizeLimits(64 * 8, 64 * 2, 64 * 13, 64 * 2);
+	setSize(64 * 9, 64 * 2);
+	setResizeLimits(64 * 9, 64 * 2, 64 * 13, 64 * 2);
 
 	//constrainer.setFixedAspectRatio(11.0 / 4.0);  // 设置为16:9比例
 	//setConstrainer(&constrainer);  // 绑定窗口的宽高限制
@@ -47,6 +47,9 @@ LModelAudioProcessorEditor::LModelAudioProcessorEditor(LModelAudioProcessor& p)
 	K_P6.setText("p6", "");
 	K_P6.ParamLink(audioProcessor.GetParams(), "p6");
 	addAndMakeVisible(K_P6);
+	K_P7.setText("p7", "");
+	K_P7.ParamLink(audioProcessor.GetParams(), "p7");
+	addAndMakeVisible(K_P7);
 
 
 	startTimerHz(30);
@@ -84,6 +87,7 @@ void LModelAudioProcessorEditor::resized()
 	K_P4.setBounds(32 + 64 * 4, 32, 64, 64);
 	K_P5.setBounds(32 + 64 * 5, 32, 64, 64);
 	K_P6.setBounds(32 + 64 * 6, 32, 64, 64);
+	K_P7.setBounds(32 + 64 * 7, 32, 64, 64);
 }
 
 void LModelAudioProcessorEditor::timerCallback()
