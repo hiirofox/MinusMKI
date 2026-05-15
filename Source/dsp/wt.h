@@ -4,6 +4,7 @@
 #include <type_traits> 
 #include "IIRBlep.h"
 #include "TableBlep.h"
+#include "Filter.h"//test
 
 namespace MinusMKI
 {
@@ -654,6 +655,8 @@ namespace MinusMKI
 
 		std::unique_ptr<std::thread> tableMutantThread;
 		std::atomic<bool> isRunning = true;
+
+		SVFilter svftest;
 	public:
 		WaveTableOscTest()
 		{
@@ -702,7 +705,8 @@ namespace MinusMKI
 				std::this_thread::sleep_for(std::chrono::nanoseconds(2000));
 			}
 			};
-		void SetParams(float freq, float p1, float p2, float p3, float p4, float p5, float p6, float p7, float sr = 48000)
+		void SetParams(float freq, float p1, float p2, float p3, float p4, float p5, float p6, float p7,
+			float n1, float n2, float n3, float n4, float n5, float n6, float n7, float sr = 48000)
 		{
 			this->freq = freq;
 			this->p1 = p1;
@@ -713,6 +717,8 @@ namespace MinusMKI
 			this->p6 = p6;
 			this->p7 = p7;
 			dt = freq / sr;
+			svftest.DesignBasicFilter(expf((n1 - 1.0) * 7.0) * 24000.0, n2 * 40.0 + 0.707, n3);
+			svftest.DesignNonlinear(n4);
 		}
 		float ProcessSample()
 		{
@@ -723,6 +729,7 @@ namespace MinusMKI
 			for (int i = 0; i < numSamples; ++i)
 			{
 				float v = ProcessSample() * 0.125;
+				v = svftest.ProcessSample(v);
 				outl[i] = v;
 				outr[i] = v;
 			}

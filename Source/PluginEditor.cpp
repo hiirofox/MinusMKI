@@ -20,8 +20,8 @@ LModelAudioProcessorEditor::LModelAudioProcessorEditor(LModelAudioProcessor& p)
 	setOpaque(false);  // 允许在边框外面绘制
 
 	//setResizeLimits(64 * 11, 64 * 5, 10000, 10000); // 设置最小宽高为300x200，最大宽高为800x600
-	setSize(64 * 9, 64 * 2);
-	setResizeLimits(64 * 9, 64 * 2, 64 * 13, 64 * 2);
+	setSize(64 * 9, 64 * 3);
+	setResizeLimits(64 * 9, 64 * 3, 64 * 13, 64 * 3);
 
 	//constrainer.setFixedAspectRatio(11.0 / 4.0);  // 设置为16:9比例
 	//setConstrainer(&constrainer);  // 绑定窗口的宽高限制
@@ -51,7 +51,27 @@ LModelAudioProcessorEditor::LModelAudioProcessorEditor(LModelAudioProcessor& p)
 	K_P7.ParamLink(audioProcessor.GetParams(), "p7");
 	addAndMakeVisible(K_P7);
 
-
+	K_N1.setText("n1", "");
+	K_N1.ParamLink(audioProcessor.GetParams(), "n1");
+	addAndMakeVisible(K_N1);
+	K_N2.setText("n2", "");
+	K_N2.ParamLink(audioProcessor.GetParams(), "n2");
+	addAndMakeVisible(K_N2);
+	K_N3.setText("n3", "");
+	K_N3.ParamLink(audioProcessor.GetParams(), "n3");
+	addAndMakeVisible(K_N3);
+	K_N4.setText("n4", "");
+	K_N4.ParamLink(audioProcessor.GetParams(), "n4");
+	addAndMakeVisible(K_N4);
+	K_N5.setText("n5", "");
+	K_N5.ParamLink(audioProcessor.GetParams(), "n5");
+	addAndMakeVisible(K_N5);
+	K_N6.setText("n6", "");
+	K_N6.ParamLink(audioProcessor.GetParams(), "n6");
+	addAndMakeVisible(K_N6);
+	K_N7.setText("n7", "");
+	K_N7.ParamLink(audioProcessor.GetParams(), "n7");
+	addAndMakeVisible(K_N7);
 	startTimerHz(30);
 
 }
@@ -88,6 +108,14 @@ void LModelAudioProcessorEditor::resized()
 	K_P5.setBounds(32 + 64 * 5, 32, 64, 64);
 	K_P6.setBounds(32 + 64 * 6, 32, 64, 64);
 	K_P7.setBounds(32 + 64 * 7, 32, 64, 64);
+
+	K_N1.setBounds(32 + 64 * 1, 32 + 64, 64, 64);
+	K_N2.setBounds(32 + 64 * 2, 32 + 64, 64, 64);
+	K_N3.setBounds(32 + 64 * 3, 32 + 64, 64, 64);
+	K_N4.setBounds(32 + 64 * 4, 32 + 64, 64, 64);
+	K_N5.setBounds(32 + 64 * 5, 32 + 64, 64, 64);
+	K_N6.setBounds(32 + 64 * 6, 32 + 64, 64, 64);
+	K_N7.setBounds(32 + 64 * 7, 32 + 64, 64, 64);
 }
 
 void LModelAudioProcessorEditor::timerCallback()
