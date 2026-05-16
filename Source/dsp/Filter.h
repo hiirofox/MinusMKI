@@ -3,39 +3,36 @@
 
 namespace MinusMKI
 {
-	struct SVFilter
+	class Filter
 	{
+
+	};
+	class SVFilter
+	{
+	private:
 		float z1 = 0, z2 = 0;
 		float d0 = 0, d1 = 0, d2 = 0, c1 = 0, c2 = 0;
+
+		float a = 0.25, d = 1.0;
+	public:
 		inline float ProcessSample(float in)
 		{
 			float x = in - z1 - z2;
 			float out = d0 * x + d1 * z1 + d2 * z2;
 			z2 += c2 * z1;
 			z1 += c1 * x;
-			z1 = Nonlinear(z1);
-			z2 = Nonlinear(z2);
-			return out;
+			return Nonlinear(out);
 		}
-
-		float a = 0.001f;
-		float g0 = 1.0f;
-		float g1 = 0.0f;
-		const float k = 0.01f;
-		const float kcoef = (k - logf(1.0f + k)) / (k * k);
 		inline float Nonlinear(float x)
 		{
-			float u = fabsf(x);
-			return x * (g0 + g1 * u) / (1.0f + k * u);
+			bool sgnx = x >= 0;
+			x = fabsf(x);
+			float y = x + (a - x) * (1.0 - 1.0 / (d * x + 1.0));
+			return sgnx ? y : -y;
 		}
 		void DesignNonlinear(float drive)
 		{
-			a = 1.001f - drive;
-			float invA = 1.0f / a;
-			float twoI = a + 2.0f * (invA - a) * kcoef;
-			float norm = 1.0f / twoI;
-			g0 = invA * norm;
-			g1 = a * k * norm;
+			d = drive * drive * 100.0;
 		}
 
 		void Reset() { z1 = z2 = 0; }
