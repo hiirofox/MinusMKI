@@ -656,7 +656,7 @@ namespace MinusMKI
 		std::unique_ptr<std::thread> tableMutantThread;
 		std::atomic<bool> isRunning = true;
 
-		Elliptic6order svftest;
+		CombFilter24dB svftest;
 	public:
 		WaveTableOscTest()
 		{

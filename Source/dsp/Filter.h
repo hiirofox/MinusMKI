@@ -8,12 +8,16 @@ namespace MinusMKI
 	protected:
 		inline float cheapCosPi(float x)
 		{
+			x = fabsf(x);
 			return 1.0 + x * x * (4.0 * x - 6.0);
 		}
 		inline float cheapSinPi(float x)
 		{
+			bool sgn = x >= 0;
+			x = fabsf(x);
 			float t = x * (1.0 - x);
-			return t * (3.14159265 + 3.40185714 * t);
+			float y = t * (3.14159265 + 3.40185714 * t);
+			return sgn ? y : -y;
 		}
 	public:
 		virtual void SetSampleRate(float sampleRate) {};
@@ -200,16 +204,18 @@ namespace MinusMKI
 	private:
 		constexpr static int numSOS = 6 / 2;
 		SVFKernel2order svfs[numSOS];
+		SVFilter12dB bw12;
 
 		float ellipCutoff = 10000.0;
-		constexpr static float ellpCoeffs[3][5] = {
-		{ 0.0232839074f, 0.0740705444f, 0.206721323f, 1.18574364f, 0.358311099f },
-		{ 1.0f, 1.99184893f, 2.91808516f, 1.43285513f, 0.682587663f },
-		{ 1.0f, 1.49236742f, 1.63876531f, 1.60344117f, 0.910665734f }
+		//c1,c2, lpd0,lpd1,lpd2, bpd..., hpd...
+		constexpr static float ellpCoeffs[3][11] = {
+		{ 1.18574364f, 0.358311099f, 0.161611388f, 0.545181548f, 1.52153129f, 0.210616062f, 0.355247213f, 0.0f, 0.274480195f, 0.0f, 0.0f },
+		{ 1.43285513f, 0.682587663f, 0.161611388f, 0.451159045f, 0.660953999f, 0.210616062f, 0.293980958f, 0.0f, 0.274480195f, 0.0f, 0.0f },
+		{ 1.60344117f, 0.910665734f, 0.161611388f, 0.40316138f, 0.442710607f, 0.210616062f, 0.26270507f, 0.0f, 0.274480195f, 0.0f, 0.0f }
 		};
 
 		float sampleRate = 48000.0;
-		void SVFApplyAPF(float* dst, const float* src, float k)
+		inline void SVFApplyAPF(float* dst, const float* src, float k)
 		{
 			const float t0 = k - 1.0;
 			const float t1 = t0 * t0;
@@ -227,20 +233,168 @@ namespace MinusMKI
 			dst[3] = src[3] * t4 * t7 * t9;
 			dst[4] = src[4] * t8 * t9;
 		}
+		void EllipApplyMorph(float* dst, const float* src, float morph)
+		{
+			const float c1 = src[0];
+			const float c2 = src[1];
+			const float* lp = src + 2;
+			const float* bp = src + 5;
+			const float* hp = src + 8;
+			float d0, d1, d2;
+			float t = morph * 2.0f;
+			if (t < 1.0f)
+			{
+				d0 = lp[0] + t * (bp[0] - lp[0]);
+				d1 = lp[1] + t * (bp[1] - lp[1]);
+				d2 = lp[2] + t * (bp[2] - lp[2]);
+			}
+			else
+			{
+				t -= 1.0f;
+				d0 = bp[0] + t * (hp[0] - bp[0]);
+				d1 = bp[1] + t * (hp[1] - bp[1]);
+				d2 = bp[2] + t * (hp[2] - bp[2]);
+			}
+			dst[0] = d0;
+			dst[1] = d1;
+			dst[2] = d2;
+			dst[3] = c1;
+			dst[4] = c2;
+		}
 	public:
 		void SetFilterParams(float cutoff, float reso, float morph)override
 		{
+			bw12.SetFilterParams(cutoff, reso, morph);
+
 			if (cutoff > sampleRate / 2 - 3000.0)cutoff = sampleRate / 2 - 3000.0;
-			float k = sin(M_PI * (cutoff - ellipCutoff) / sampleRate) / sin(M_PI * (cutoff + ellipCutoff) / sampleRate);
-			float tmpcoeffs[5];
+			float k =
+				cheapSinPi((cutoff - ellipCutoff) / sampleRate) /
+				cheapSinPi((cutoff + ellipCutoff) / sampleRate);
+
+			float baseCoeffs[5];
+			float warpedCoeffs[5];
 			for (int i = 0; i < numSOS; ++i)
 			{
-				SVFApplyAPF(tmpcoeffs, ellpCoeffs[i], k);
-				svfs[i].SetCoeffs(tmpcoeffs);
+				EllipApplyMorph(baseCoeffs, ellpCoeffs[i], morph);
+				SVFApplyAPF(warpedCoeffs, baseCoeffs, k);
+				svfs[i].SetCoeffs(warpedCoeffs);
 			}
 		}
-		void Reset() override { for (int i = 0; i < numSOS; ++i)svfs[i].Reset(); }
-		float ProcessSample(float x) override { for (int i = 0; i < numSOS; ++i) x = svfs[i].ProcessSample(x); return x; }
+		void Reset() override
+		{
+			bw12.Reset();
+			for (int i = 0; i < numSOS; ++i)
+				svfs[i].Reset();
+		}
+		float ProcessSample(float x) override
+		{
+			x = bw12.ProcessSample(x);
+			for (int i = 0; i < numSOS; ++i)
+				x = svfs[i].ProcessSample(x);
+			return x;
+		}
+		void SetSampleRate(float sr) override
+		{
+			bw12.SetSampleRate(sr);
+			sampleRate = sr;
+		}
+	};
+
+	class CombFilter :public Filter
+	{
+	private:
+		constexpr static int MaxBufferSize = 2048;//minfreq = 48000/2048
+		float sampleRate = 48000;
+		float buf[MaxBufferSize] = { 0 };
+		int pos = 0;
+		float realDelayTime = 1.0;
+		float delayTime = 1.0;
+		float fb = 0.0;
+
+		float z = 0;
+		inline float ProcessAPF(float x, float k)//k 0->1 : z^-1 -> 1
+		{
+			x = x - k * z;
+			float y = k * x + z;
+			z = x;
+			return y;
+		}
+		float ddcz = 0;
+		inline float ProcessDeDC(float x)
+		{
+			ddcz += 0.01 * (x - ddcz);
+			return x - ddcz;
+		}
+	public:
+		inline float ProcessSample(float x) override
+		{
+			realDelayTime += 0.05 * (delayTime - realDelayTime);
+			int idt = realDelayTime;
+			float kfrac = realDelayTime - idt;
+			int writePos = pos % MaxBufferSize;
+			int readPos = (pos + MaxBufferSize - idt) % MaxBufferSize;
+			pos++;
+			float dlout = buf[readPos];
+			float xWithFB = x + dlout * fb;
+			buf[writePos] = ProcessAPF(ProcessDeDC(xWithFB), (1.0 - kfrac) / (1.0 + kfrac));
+			return (xWithFB + dlout) * 0.5;
+		}
+		void Reset() override
+		{
+			for (auto& v : buf)v = 0;
+			z = 0;
+			ddcz = 0.0f;
+			realDelayTime = delayTime;
+		}
 		void SetSampleRate(float sr) override { sampleRate = sr; }
+		void SetFilterParams(float cutoff, float reso, float morph) override
+		{
+			delayTime = sampleRate / cutoff - 1;
+			if (delayTime < 1)delayTime = 1;
+			if (delayTime > MaxBufferSize - 1)delayTime = MaxBufferSize - 1;
+			fb = 1.0 - 1.0 / reso;
+			if (fb < 0)fb = 0;
+			if (fb > 0.999)fb = 0.999;
+		}
+	};
+
+	class CombFilter4Stage :public Filter
+	{
+	private:
+		CombFilter6dB cf1, cf2, cf3, cf4;
+		float gainFix = 1.0;
+	public:
+		float ProcessSample(float x) override
+		{
+			x *= gainFix;
+			x = cf1.ProcessSample(x);
+			x = cf2.ProcessSample(x);
+			x = cf3.ProcessSample(x);
+			x = cf4.ProcessSample(x);
+			return x;
+		}
+		void Reset() override
+		{
+			cf1.Reset();
+			cf2.Reset();
+			cf3.Reset();
+			cf4.Reset();
+		}
+		void SetSampleRate(float sr) override
+		{
+			cf1.SetSampleRate(sr);
+			cf2.SetSampleRate(sr);
+			cf3.SetSampleRate(sr);
+			cf4.SetSampleRate(sr);
+		}
+		void SetFilterParams(float cutoff, float reso, float morph) override
+		{
+			reso = sqrtf(sqrtf(reso));
+			gainFix = 1.0 / (reso * reso);
+			cf1.SetFilterParams(cutoff, reso, morph);
+			cf2.SetFilterParams(cutoff, reso, morph);
+			cf3.SetFilterParams(cutoff, reso, morph);
+			cf4.SetFilterParams(cutoff, reso, morph);
+		}
 	};
 }
