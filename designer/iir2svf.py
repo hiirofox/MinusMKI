@@ -141,7 +141,7 @@ def emit_c_coeff_code(result, n, scalar_type="double"):
 
     return "\n".join(lines)
 
-stages=6
+stages=2
 
 result = iir_to_zdf_state_symbolic_ap(stages)
 
