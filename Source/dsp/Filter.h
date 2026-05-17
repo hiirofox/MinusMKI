@@ -8,16 +8,12 @@ namespace MinusMKI
 	protected:
 		inline float cheapCosPi(float x)
 		{
-			x = x * x * 1.17158;
-			x = 1.0 - x;
-			return x * x * 2.0 - 1.0;
+			return 1.0 + x * x * (4.0 * x - 6.0);
 		}
 		inline float cheapSinPi(float x)
 		{
-			x -= 0.5;
-			x = x * x * 1.17158;
-			x = 1.0 - x;
-			return x * x * 2.0 - 1.0;
+			float t = x * (1.0 - x);
+			return t * (3.14159265 + 3.40185714 * t);
 		}
 	public:
 		virtual void SetSampleRate(float sampleRate) {};
@@ -125,7 +121,8 @@ namespace MinusMKI
 			cutoff /= sampleRate;
 			if (cutoff < 0.00005)cutoff = 0.00005;
 			if (cutoff > 0.45)cutoff = 0.45;
-			reso = sqrtf(reso);
+
+			reso = sqrtf(reso);//!
 
 			//float w0 = 2.0f * pi * cutoff;
 			//float cs = cosf(w0);
