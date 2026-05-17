@@ -656,7 +656,7 @@ namespace MinusMKI
 		std::unique_ptr<std::thread> tableMutantThread;
 		std::atomic<bool> isRunning = true;
 
-		SVFilter svftest;
+		SVFilter12dB svftest;
 	public:
 		WaveTableOscTest()
 		{
@@ -717,8 +717,7 @@ namespace MinusMKI
 			this->p6 = p6;
 			this->p7 = p7;
 			dt = freq / sr;
-			svftest.DesignBasicFilter(expf((n1 - 1.0) * 7.0) * 24000.0, n2 * 40.0 + 0.707, n3);
-			svftest.DesignNonlinear(n4);
+			svftest.SetFilterParams(expf((n1 - 1.0) * 7.0) * 24000.0, n2 * 40.0 + 0.707, n3);
 		}
 		float ProcessSample()
 		{
