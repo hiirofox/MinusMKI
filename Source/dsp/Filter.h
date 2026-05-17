@@ -310,6 +310,7 @@ namespace MinusMKI
 		float realDelayTime = 1.0;
 		float delayTime = 1.0;
 		float fb = 0.0;
+		float morph = 0;
 
 		float z = 0;
 		inline float ProcessAPF(float x, float k)//k 0->1 : z^-1 -> 1
@@ -334,10 +335,17 @@ namespace MinusMKI
 			int writePos = pos % MaxBufferSize;
 			int readPos = (pos + MaxBufferSize - idt) % MaxBufferSize;
 			pos++;
-			float dlout = buf[readPos];
-			float xWithFB = x + dlout * fb;
+
+			float xWithFB_Add = x + buf[readPos] * fb;
+			float xWithFB_Sub = x - buf[readPos] * fb;
+			float out_Add = xWithFB_Add + buf[readPos];
+			float out_Sub = xWithFB_Sub - buf[readPos];
+
+			float xWithFB = morph < 0.5 ? xWithFB_Add : xWithFB_Sub;
+			float out = out_Add + (out_Sub - out_Add) * morph;
+
 			buf[writePos] = ProcessAPF(ProcessDeDC(xWithFB), (1.0 - kfrac) / (1.0 + kfrac));
-			return (xWithFB + dlout) * 0.5;
+			return out * 0.5;
 		}
 		void Reset() override
 		{
@@ -355,13 +363,14 @@ namespace MinusMKI
 			fb = 1.0 - 1.0 / reso;
 			if (fb < 0)fb = 0;
 			if (fb > 0.999)fb = 0.999;
+			this->morph = morph;
 		}
 	};
 
 	class CombFilter4Stage :public Filter
 	{
 	private:
-		CombFilter6dB cf1, cf2, cf3, cf4;
+		CombFilter cf1, cf2, cf3, cf4;
 		float gainFix = 1.0;
 	public:
 		float ProcessSample(float x) override
@@ -390,11 +399,13 @@ namespace MinusMKI
 		void SetFilterParams(float cutoff, float reso, float morph) override
 		{
 			reso = sqrtf(sqrtf(reso));
-			gainFix = 1.0 / (reso * reso);
-			cf1.SetFilterParams(cutoff, reso, morph);
-			cf2.SetFilterParams(cutoff, reso, morph);
-			cf3.SetFilterParams(cutoff, reso, morph);
-			cf4.SetFilterParams(cutoff, reso, morph);
+			float morphGain = 1.0f + 3.0f * cheapSinPi(morph);
+			gainFix = morphGain / (reso * reso);
+			morph = morph * morph + 1.0;
+			cf1.SetFilterParams(cutoff * (morph *= morph), reso, 0);
+			cf2.SetFilterParams(cutoff * (morph *= morph), reso, 0);
+			cf3.SetFilterParams(cutoff * (morph *= morph), reso, 0);
+			cf4.SetFilterParams(cutoff * (morph *= morph), reso, 0);
 		}
 	};
 }
