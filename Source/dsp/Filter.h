@@ -414,12 +414,13 @@ namespace MinusMKI
 	class PhaserFilter :public Filter
 	{
 	private:
-		constexpr static int MaxStages = 24;
+		constexpr static int MaxStages = 12;
 		int numStages = 2;
 		float sampleRate = 48000;
 
 		float z[MaxStages] = { 0 };
 		float k = 0, fb = 0, apfout = 0;
+		float gainfix = 1.0;
 		inline float ProcessAPF(float x)//k 0->1 : z^-1 -> 1
 		{
 			for (int i = 0; i < numStages; ++i)
@@ -440,7 +441,7 @@ namespace MinusMKI
 	public:
 		float ProcessSample(float x) override
 		{
-			float apfin = x * (fb - 1.0) + fb * apfout;
+			float apfin = x * gainfix + fb * apfout;
 			apfout = ProcessAPF(ProcessDeDC(apfin));
 			return (apfin + apfout) * 0.5;
 		}
@@ -460,6 +461,7 @@ namespace MinusMKI
 			k = -cheapSinPi(0.5 / numStages - normf) /
 				cheapSinPi(0.5 / numStages + normf);
 			fb = 1.0 - 1.0 / reso;
+			gainfix = sqrtf(fabs(fb - 1.0));
 		}
 	};
 }
