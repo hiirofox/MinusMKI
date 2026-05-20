@@ -8,16 +8,19 @@ namespace MinusMKI
 	protected:
 		inline float cheapCosPi(float x)
 		{
-			x = fabsf(x);
-			return 1.0 + x * x * (4.0 * x - 6.0);
+			int n = floorf(x);
+			float f = x - n;
+			float y = 1.0f + f * f * (4.0f * f - 6.0f);
+			return (n & 1) ? -y : y;
 		}
+
 		inline float cheapSinPi(float x)
 		{
-			bool sgn = x >= 0;
-			x = fabsf(x);
-			float t = x * (1.0 - x);
-			float y = t * (3.14159265 + 3.40185714 * t);
-			return sgn ? y : -y;
+			int n = floorf(x);
+			float f = x - n;
+			float t = f * (1.0f - f);
+			float y = t * (3.14159265f + 3.40185714f * t);
+			return (n & 1) ? -y : y;
 		}
 	public:
 		virtual void SetSampleRate(float sampleRate) {};
@@ -327,7 +330,7 @@ namespace MinusMKI
 			return x - ddcz;
 		}
 	public:
-		inline float ProcessSample(float x) override
+		inline float ProcessSample(float x) override final
 		{
 			realDelayTime += 0.05 * (delayTime - realDelayTime);
 			int idt = realDelayTime;
@@ -406,6 +409,57 @@ namespace MinusMKI
 			cf2.SetFilterParams(cutoff * (morph *= morph), reso, 0);
 			cf3.SetFilterParams(cutoff * (morph *= morph), reso, 0);
 			cf4.SetFilterParams(cutoff * (morph *= morph), reso, 0);
+		}
+	};
+	class PhaserFilter :public Filter
+	{
+	private:
+		constexpr static int MaxStages = 24;
+		int numStages = 2;
+		float sampleRate = 48000;
+
+		float z[MaxStages] = { 0 };
+		float k = 0, fb = 0, apfout = 0;
+		inline float ProcessAPF(float x)//k 0->1 : z^-1 -> 1
+		{
+			for (int i = 0; i < numStages; ++i)
+			{
+				x = x - k * z[i];
+				float y = k * x + z[i];
+				z[i] = x;
+				x = y;
+			}
+			return x;
+		}
+		float ddcz = 0;
+		inline float ProcessDeDC(float x)
+		{
+			ddcz += 0.01 * (x - ddcz);
+			return x - ddcz;
+		}
+	public:
+		float ProcessSample(float x) override
+		{
+			float apfin = x * (fb - 1.0) + fb * apfout;
+			apfout = ProcessAPF(ProcessDeDC(apfin));
+			return (apfin + apfout) * 0.5;
+		}
+		void Reset() override
+		{
+			for (auto& v : z)v = 0;
+			apfout = 0;
+		}
+		void SetSampleRate(float sr) override
+		{
+			sampleRate = sr;
+		}
+		void SetFilterParams(float cutoff, float reso, float morph) override
+		{
+			numStages = morph * (MaxStages - 2) + 2.0;
+			float normf = cutoff / sampleRate;
+			k = -cheapSinPi(0.5 / numStages - normf) /
+				cheapSinPi(0.5 / numStages + normf);
+			fb = 1.0 - 1.0 / reso;
 		}
 	};
 }
