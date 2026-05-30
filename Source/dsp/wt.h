@@ -462,7 +462,7 @@ namespace MinusMKI
 				nextIntMagtable[i] = source[i];
 			isSwapPrepared = 2;
 		}
-		float ProcessSampleHQ(float dt)//µÍÆµÄ£Ê½
+		float ProcessSampleHQ(float dt, float pm = 0.0)
 		{
 			ProcessSwapTable();
 			if (dt > 0.499)dt = 0.499;
@@ -496,7 +496,7 @@ namespace MinusMKI
 				//blit.Step();
 				//return mag * TableWidth + blit.Get();
 
-				blit.Add(mag * TableWidth, 0, 0);
+				blit.Add(mag * TableWidth, 0 + pm, 0);
 				blit.Step();
 				return blit.Get();
 			}
@@ -522,7 +522,7 @@ namespace MinusMKI
 						float magA = selectedTableA[idx];
 						float magB = selectedTableB[idx];
 						float mag = magA + (magB - magA) * sampleCounter;
-						blit.Add(mag * absOneDivDt, where, 0);
+						blit.Add(mag * absOneDivDt, where + pm, 0);
 					}
 				}
 				else if (udt < 0.0)
@@ -536,7 +536,7 @@ namespace MinusMKI
 						float magA = selectedTableA[idx];
 						float magB = selectedTableB[idx];
 						float mag = magA + (magB - magA) * sampleCounter;
-						blit.Add(mag * absOneDivDt, where, 0);
+						blit.Add(mag * absOneDivDt, where + pm, 0);
 					}
 				}
 
@@ -587,7 +587,15 @@ namespace MinusMKI
 			if (t < 0.0)t += 1.0;
 			return mag * selectedTableWidth;
 		}
-		float ProcessSample(float dt) { return ProcessSampleHQ(dt); }
+		float pmt = 0.0;
+		float ProcessSampleTestPM(float dt)
+		{
+			float pmv = cosf(pmt * 2.0 * M_PI);
+			pmt += 50.0 / 48000.0;
+			pmt -= floorf(pmt);
+			return ProcessSampleHQ(dt, pmv * 32.0);
+		}
+		float ProcessSample(float dt) { return ProcessSampleTestPM(dt); }
 		void SetStartPhase(float phase) { this->t = phase; }
 	};
 

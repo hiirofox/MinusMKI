@@ -2842,6 +2842,7 @@
     <ClInclude Include="..\..\Source\dsp\Filter.h"/>
     <ClInclude Include="..\..\Source\dsp\wt.h"/>
     <ClInclude Include="..\..\Source\dsp\ds2x.h"/>
+    <ClInclude Include="..\..\Source\dsp\envelope.h"/>
     <ClInclude Include="..\..\Source\ui\LM_slider.h"/>
     <ClInclude Include="..\..\Source\PluginProcessor.h"/>
     <ClInclude Include="..\..\Source\PluginEditor.h"/>

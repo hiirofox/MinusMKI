@@ -3570,6 +3570,9 @@
     <ClInclude Include="..\..\Source\dsp\ds2x.h">
       <Filter>MinusMKI\Source\dsp</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\Source\dsp\envelope.h">
+      <Filter>MinusMKI\Source\dsp</Filter>
+    </ClInclude>
     <ClInclude Include="..\..\Source\ui\LM_slider.h">
       <Filter>MinusMKI\Source\ui</Filter>
     </ClInclude>

@@ -83,7 +83,9 @@ public:
 class Lagrange4thBlep
 {
 private:
-	float z1 = 0, z2 = 0, z3 = 0, z4 = 0;
+	constexpr static int MaxInjectDelay = 128;
+	float z[MaxInjectDelay] = { 0 };
+	int pos = 0;
 	float v = 0.0;
 
 	inline float SquareWelch(float x)
@@ -95,12 +97,17 @@ private:
 		return x;
 	}
 	const float blepIntV = 15.0f / 16.0f;
-	IirDcCompensator dcc;
 public:
+	Lagrange4thBlep()
+	{
+		for (auto& n : z)n = 0;
+	}
 	void Add(float amp, float where, int stage = 1)
 	{
 		float p1 = 0.0, p2 = 0.0, p3 = 0.0, p4 = 0.0;
-		float x = where;
+		where += MaxInjectDelay * 0.5;
+		int idx = where;
+		float x = where - idx;
 		if (stage == 0)
 		{
 			float q = x * (x - 1.0f);
@@ -111,15 +118,6 @@ public:
 			p2 = x + r3 - p1_3;
 			p4 = r3 - p1;
 			p3 = 1.0f - p1 - p2 - p4;
-			/*
-			x = 1.0 - x;
-			const float x2 = x * x;
-			const float x3 = x2 * x;
-			p1 = -x3 * (1.0f / 6.0f) + x2 * 0.5f - x * (1.0f / 3.0f);
-			p2 = x3 * 0.5f - x2 - x * 0.5f + 1.0f;
-			p3 = -x3 * 0.5f + x2 * 0.5f + x;
-			p4 = x3 * (1.0f / 6.0f) - x * (1.0f / 6.0f);
-			*/
 		}
 		else if (stage == 1)
 		{
@@ -138,25 +136,21 @@ public:
 		}
 
 		//µþ¼Ó²Ð²î
-		z1 = z1 + p1 * amp;
-		z2 = z2 + p2 * amp;
-		z3 = z3 + p3 * amp;
-		z4 = z4 + p4 * amp;
-
-		//dcc.Add((p1 + p2 + p3 + p4) * amp, where);
+		int pos2 = MaxInjectDelay + pos;
+		z[(pos2 - idx + 0) % MaxInjectDelay] += p1 * amp;
+		z[(pos2 - idx + 1) % MaxInjectDelay] += p2 * amp;
+		z[(pos2 - idx + 2) % MaxInjectDelay] += p3 * amp;
+		z[(pos2 - idx + 3) % MaxInjectDelay] += p4 * amp;
 	}
 	void Step()
 	{
-		v = z1;
-		z1 = z2;
-		z2 = z3;
-		z3 = z4;
-		z4 = 0;
-		//dcc.Step();
+		v = z[pos];
+		z[pos] = 0;
+		pos++;
+		if (pos >= MaxInjectDelay)pos = 0;
 	}
 	float Get()
 	{
-		//return v - dcc.Get();
 		return v;
 	}
 };
